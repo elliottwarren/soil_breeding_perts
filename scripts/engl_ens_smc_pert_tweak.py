@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 '''
-Generates SMC and TSOIL perturbations using the breeding method
+Generates SMC (soil moisture content) and TSOIL (temp soil) perturbations using the breeding method
 Differences at T+6h forecasts from the previous cycle are carried to the new cycle
 
 Usage: engl_ens_smc_pert.py
@@ -257,6 +257,7 @@ def load_prev_ens_data():
         TIMER.end('opening file')
 
         # pull out the fields:
+        # SMC on multiple heights, therefore has multiple fields
         TIMER.start('checking/extracting input data')
         for field in ff_file_in.fields:
             # is this stash code we want?
@@ -815,12 +816,14 @@ def smc_pert_top():
     # load the input data:
     prev_ens_data, prev_ens_ff_files = load_prev_ens_data()
     # mean the required fields
-    prev_ens_mean = mean_prev_ens_data(prev_ens_data, prev_ens_ff_files)
+    prev_ens_mean = mean_prev_ens_data(prev_ens_data, prev_ens_ff_files) #ToDo to become one script
     # subtract the mean from the input data to create a perturbation
-    diff_data = in_data_minus_mean(prev_ens_data, prev_ens_mean, prev_ens_ff_files)
+    diff_data = in_data_minus_mean(prev_ens_data, prev_ens_mean, prev_ens_ff_files) #ToDo 1st part of 2nd script
     # now check these differences (first guess perturbations) are acceptible,
     # when applied to the current dump:
-    pert_data = pert_check_and_output(diff_data, prev_ens_ff_files)
+    pert_data = pert_check_and_output(diff_data, prev_ens_ff_files) #ToDo 2nd part of 2nd script
+
+    # ToDo need to append the now checked data to the SURF file
 
 if __name__ == '__main__':
     TIMER = Timers('engl_smc_perts', [])
