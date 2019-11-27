@@ -1,10 +1,19 @@
 #!/usr/bin/env python2
 
 """
-Calculate ensemble mean of soil moisture content from all ensemble members
+Calculate ensemble mean of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members, and
+save the output in a 'bpert' file.
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
+
+Tested versions:
+python 2.7.16
+mule 2019.01.1
+numpy 1.16.5
+
+Testing (including soil temperature) carried out in:
+/data/users/ewarren/R2O_projects/soil_moisture_pertubation/
 """
 
 import os, pdb, datetime, shutil
@@ -28,8 +37,6 @@ ENS_MEAN_DIR = os.getenv('ENS_MEAN_DIR')
 # named [engl_smc_bpert] to differentiate the pertubations as being produced from the breeding method
 ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 
-# initial conditions of unperturbed ensemble forecast:
-ENS_ANAL_FILE = os.getenv('ENS_ANAL_FILE')
 
 if NUM_PERT_MEMBERS is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
@@ -38,7 +45,6 @@ if NUM_PERT_MEMBERS is None:
     SUITE_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/' + THIS_CYCLE
     ENS_MEAN_DIR = SUITE_DIR + '/engl_smc'
     ENS_PERT_DIR = SUITE_DIR + '/engl_smc/engl_smc_bpert'
-    ENS_ANAL_FILE = "/home/d03/freb/cylc-run/u-ai506/share/cycle/20150629T1800Z/engl_atmanl"
 
 
 # conversions to type:
@@ -48,14 +54,15 @@ MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
 ## Config:
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
+STASH_TSOIL = 20
 STASH_SMC = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK]
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK]
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # The minimum allowed soil moisture content, after perturbation, uses
 # the SMC at wilting point, scaled by this factor:
@@ -125,16 +132,21 @@ def engl_cycle_bpert_filename(member):
     # extra 0 before the member number to be consistent with existing engl_smc pertubation files
     return '{0}/engl_smc/engl_smc_bpert/engl_smc_bpert_0{1}'.format(SUITE_DIR, mem_to_str(member))
 
-def load_engl_smc_member_data():
+def load_engl_soil_member_data():
 
-    '''
-    Loads in input data from ensemble run (all members). This is from a large
-    number of files, and sorted into a dict strucure by field, level to
-    produce a list containing the data for ensemble members.
-    E.g. {9: {1: [field1a, field2a, field3a], 2: [field1b, field2b ...]}}
-    where 9 = stash code, 1 and 2 are levels, and the list of fields within are the fields at the stash
-     and level from all the different members.
-    '''
+    """
+
+    Loads in input data from ensemble run (all members). This is from a large number of files, and sorted into a dict
+    strucure by field, level to produce a list containing the data for ensemble members.
+
+    :return: ens_data (dictionary, keys = STASH, level; items = fields], e.g. {9: {1: [field1a, field2a, field3a],
+        2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are levels. The list of fields within are from all the
+        different members and have length n where n = maximum number of members): all ensemble field data for STASH
+        variables.
+    :return: ens_ff_files (list): field files for all members
+
+    """
+
     # set up the returned data structure...
     ens_data = {}
     for stash in STASH_TO_LOAD:
@@ -146,21 +158,14 @@ def load_engl_smc_member_data():
     # and the fieldsfile objects, which we can use as templates later on:
     ens_ff_files = []
 
-    # ToDo - need a step to pass if the ensemble member isn't there - maybe deduce this early and adjust
-    # ToDo      MEMBERS_PERT_INTS?
     # load in the required data for each file:
     for member in MEMBERS_PERT_INTS:
 
-        # file with SMC data (after t+3)
-        smc_src_file = engl_cycle_tplus6_dump(member)
+        # file with SMC and TSOIL data (after t+3)
+        soil_src_file = engl_cycle_tplus6_dump(member)
         # data file to open:
-        #TIMER.start('opening file')
-        ff_file_in = mule.DumpFile.from_file(smc_src_file)
-        # ToDo check on whether correct filetype
-        # if ff_file_in.fixed_length_header.dataset_type not in (1,2,3):
-        #     raise ValueError("wrong file type")
+        ff_file_in = mule.DumpFile.from_file(soil_src_file)
         ff_file_in.remove_empty_lookups()
-        #TIMER.end('opening file')
 
         # pull out the fields:
         for field in ff_file_in.fields:
@@ -180,24 +185,25 @@ def load_engl_smc_member_data():
 
     return ens_data, ens_ff_files
 
-def mean_ens_data(in_data, in_files):
+def mean_ens_data(in_data):
 
     """
     Create ensemble mean of the soil moisture content field
-    :param in_data (dictionary; keys: level): ensemble data in
-    :param in_files:
-    :return: mean data: mean of ensemble
+
+    :param in_data :(dictionary, keys = STASH, level; items = fields]): all ensemble data in. See [ens_data] in
+        load_engl_soil_member_data()
+    :return:
     """
 
     # Assumes soil moisture content is provided on multiple levels
     mean_data = {}
 
-    # define the operators we need to use:
+    # Define the operators we need to use:
     # add the fields up:
     adder = mule.operators.AddFieldsOperator(preserve_mdi=True)
-    # dived them by the number:
+    # Dived them by the number:
     divver = mule.operators.ScaleFactorOperator(1.0 / NUM_PERT_MEMBERS)
-    # and save the result in memory rather than recalculating it each time:
+    # And save the result in memory rather than recalculating it each time:
     cahceoperator = CachingOperator()
 
     for stash in STASH_TO_MAKE_PERTS:
@@ -206,9 +212,9 @@ def mean_ens_data(in_data, in_files):
             for level in in_data[stash]:
                 # add them up:
                 sum_field = adder(in_data[stash][level])
-                # now divied:
+                # now divide:
                 mean_field = divver(sum_field)
-                # and store that in the output strcuture, as cached data:
+                # and store that in the output structure, as cached data:
                 mean_data[stash][level] = cahceoperator(mean_field)
                 # now use get_data to actually do the meaning at this point
                 # and cache the result. This means the timer is accurate.
@@ -229,7 +235,16 @@ def mean_ens_data(in_data, in_files):
 
 def save_ens_mean(ens_data, ens_mean_data, in_files):
 
-    # ensure ENS_MEAN_DIR exists
+    """
+    Additional function to save the ensemble mean calculated from mean_ens_data().
+
+    :param ens_data (dictionary): fields from all ensemble members (see [ens_data] in load_engl_smc_member_data)
+    :param ens_mean_data:
+    :param in_files: 
+    :return:
+    """
+
+    # Ensure ENS_MEAN_DIR exists
     if os.path.isdir(ENS_MEAN_DIR) == False:
         # use mkdir -p (recursive dir creation) as pythonic equivalent functions variy between Python2 and Python3
         os.system('mkdir -p '+ENS_MEAN_DIR)
@@ -257,6 +272,7 @@ def in_data_minus_mean(in_data, mean_data, in_files):
 
     """
     Subtracts the mean of a set of fields from the input data, to produce a perturbation
+
     :param in_data: all ensemble data
     :param mean_data: ensemble mean
     :param in_files: all ensemble files
@@ -280,16 +296,18 @@ def in_data_minus_mean(in_data, mean_data, in_files):
             for member in in_data[stash]:
                 pert_data[stash].append(subber([member, mean_data[stash]]))
 
-    # now add the land sea masks on as well:
-    pert_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK]
+    # now add the land sea mask from the first member as well.
+    # Set within a list to match the storage style of other STASH fields in the pert_data dictionary
+    pert_data[STASH_LAND_SEA_MASK] = [in_data[STASH_LAND_SEA_MASK][0]]
 
     return pert_data
 
 def save_ens_perts(in_pert_data, in_files):
 
     """
-    Save ensemble pertubations
-    :param in_pert_data: pertubation data
+    Save ensemble perturbations
+
+    :param in_pert_data: perturbation data
     :param in_files:
     :return:
     """
@@ -328,30 +346,29 @@ def save_ens_perts(in_pert_data, in_files):
 if __name__ == '__main__':
 
     """
-    Top level Soil Moisture Content (smc) perturbation routine
+    Top level soil moisture content (SMC) and soil temperature (TSOIL) perturbation routine
     1) Loads in data
     2) Produces the mean of the input fields
-    3) Save the ensemble mean
+    2a (added option) save ensemble mean
+    3) Save the ensemble perturbations
     """
-    # load the input data:
-    ens_data, ens_ff_files = load_engl_smc_member_data()
+    # load the smc and tsoil input data for all members:
+    ens_data, ens_ff_files = load_engl_soil_member_data()
+
     # mean the required fields
-    ens_mean = mean_ens_data(ens_data, ens_ff_files)
+    ens_mean = mean_ens_data(ens_data)
 
-    # save the ensemble mean to be later used in making pertubations
-    # save_ens_mean(ens_data, prev_ens_mean, prev_ens_ff_files)
-
-    # create pertubations (member_i - mean(all_members_of_same_cycle))
+    # create pertubations pert_i = (member_i - mean(member_k)),
+    # where member_k is a vector and k = 1 ... n maximum members
     ens_perts = in_data_minus_mean(ens_data, ens_mean, ens_ff_files)
 
-    # save ensemble pertubations
+    # save the ensemble mean used in making pertubations (mean(all_members_of_same_cycle))
+    # save_ens_mean(ens_data, prev_ens_mean, prev_ens_ff_files)
+
+    # save ensemble pertubations (pert_i)
     save_ens_perts(ens_perts, ens_ff_files)
 
-    # add the breeding pertubation to the existing EKF with a scaling for the breeding perubations.
-    #   e.g. total_pert = EKF_pert + (alpha*breeding_pert) # ToDo
 
-    # check breeding pertubations are scientifically valid
-    # pert_data = pert_check_and_output(diff_data, prev_ens_ff_files) # ToDo
 
 
 
