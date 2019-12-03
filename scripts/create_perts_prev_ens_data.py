@@ -1,8 +1,8 @@
 #!/usr/bin/env python2
 
 """
-Calculate ensemble mean of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members, and
-save the output in a 'bpert' file.
+Calculate ensemble mean of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
+for t+3 and save the output in a 'bpert' file. Output gets used next cycle, valid for t-3.
 
 Perturbations are calculated for the current cycle, and stored ready for the next cycle to use in its forecast.
 
