@@ -29,8 +29,8 @@ import mule.operators
 # number of ensemble members to do perturbations for
 NUM_PERT_MEMBERS = os.getenv('NUM_PERT_MEMBERS')
 
-# current cycle (style = 20190831T1200Z)
-THIS_CYCLE = os.getenv('THIS_CYCLE')
+# cycle directory
+ROSE_DATAC = os.getenv('ROSE_DATAC')
 
 # directory the ensemble mean file will be saved in
 ENS_MEAN_DIR = os.getenv('ENS_MEAN_DIR')
@@ -46,10 +46,9 @@ DIAGNOSTICS = False
 if NUM_PERT_MEMBERS is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    THIS_CYCLE = '20181201T0600Z'
-    SUITE_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/' + THIS_CYCLE
-    ENS_MEAN_DIR = SUITE_DIR + '/engl_smc'
-    ENS_PERT_DIR = SUITE_DIR + '/engl_smc/engl_smc_bpert'
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
+    ENS_MEAN_DIR = ROSE_DATAC + '/engl_smc'
+    ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
     DIAGNOSTICS = True
 
 
@@ -144,14 +143,14 @@ def engl_cycle_tplus3_dump(member):
 
     """ locates T+6 hour start dump from the current cycle for an ensemble member"""
     # ToDo set the filename (da003) to be an environment variable passed down to python script
-    return '{0}/engl_um/engl_um_{1}/englaa_da003'.format(SUITE_DIR, mem_to_str(member))
+    return '{0}/engl_um/engl_um_{1}/englaa_da003'.format(ROSE_DATAC, mem_to_str(member))
 
 
 def engl_cycle_bpert_filename(member):
 
     """ create filename for the breeding pertubation to be saved under, for an ensemble member"""
     # extra 0 before the member number to be consistent with existing engl_smc pertubation files
-    return '{0}/engl_smc/engl_smc_bpert/engl_smc_bpert_0{1}'.format(SUITE_DIR, mem_to_str(member))
+    return '{0}/engl_smc/engl_smc_bpert/engl_smc_bpert_{1}'.format(ROSE_DATAC, mem_to_str(member))
 
 
 # loading functions
