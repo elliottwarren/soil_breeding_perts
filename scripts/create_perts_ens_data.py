@@ -1,10 +1,11 @@
 #!/usr/bin/env python2
 
 """
-Calculate ensemble mean of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
-for t+3 and save the output in a 'bpert' file. Output gets used next cycle, valid for t-3.
+Calculate perturbations of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
+using the breeding method. Data used is for t+3 of the current cycle and saves the output for each member
+separately in a 'bpert' file. Output gets used next cycle, then valid for t-3.
 
-Perturbations are calculated for the current cycle, and stored ready for the next cycle to use in its forecast.
+Perturbations calculated for each soil level as: each member minus the ensemble mean
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -51,7 +52,6 @@ if NUM_PERT_MEMBERS is None:
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
     DIAGNOSTICS = True
 
-
 # conversions to type:
 NUM_PERT_MEMBERS = int(NUM_PERT_MEMBERS)
 MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
@@ -94,7 +94,6 @@ class CachingOperator(mule.DataOperator):
     objects referenced by this operator *after* it has
     been invoked will not have any effect.
     """
-
 
     def __init__(self):
         pass
@@ -307,6 +306,7 @@ def in_data_minus_mean(in_data, mean_data):
 
 # saving functions
 
+
 def save_ens_mean(ens_data, ens_mean_data, in_files):
 
     """
@@ -335,8 +335,9 @@ def save_ens_mean(ens_data, ens_mean_data, in_files):
         else:
             ens_mean_ff.fields.append(STASH_TO_MAKE_PERTS[stash])
 
-    # add land sea mask - can this be removed somehow?
+    # add land sea mask
     ens_mean_ff.fields.append(ens_data[STASH_LAND_SEA_MASK][0])
+
     # save
     ens_mean_ff.to_file(ens_mean_filepath)
 
@@ -353,7 +354,7 @@ def save_ens_perts(in_pert_data, in_files):
     :return:
     """
 
-    # create directory in engl_smc to save the pertubations
+    # create directory in engl_smc to save the perturbations
     # use mkdir -p to avoid errors due to varying python interpreter version
     os.system('mkdir -p ' + ENS_PERT_DIR)
 
@@ -392,6 +393,7 @@ if __name__ == '__main__':
     2a (added option) save ensemble mean
     3) Save the ensemble perturbations
     """
+
     # load the smc and tsoil input data for all members:
     ens_data, ens_ff_files = load_engl_soil_member_data()
 
@@ -408,3 +410,5 @@ if __name__ == '__main__':
 
     # save ensemble perturbations (pert_i)
     save_ens_perts(ens_perts, ens_ff_files)
+
+    exit(0)
