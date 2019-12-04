@@ -3,7 +3,7 @@
 """
 Load in breeding perturbations, calculated from and valid for t+3 in the previous cycle. Then,
 and add them to EKF perturbations of current cycle. The combined output should be valid for t-3 for this cycle.
-
+Scientific checks are assumed to be carried out by IAU.
 
 Created by Elliott Warren Thurs 21th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -41,13 +41,12 @@ ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 ENS_SMC_DIR = os.getenv('ENS_SMC_DIR')
 
 # tuning factor to determine how much of the breeding perturbation to add to the existing EKF perturbation.
-# as final, combined perturbation will be EKF_pert + (TUNING_FACTOR*breeding_pert)
-# i.e. 0 = no breeding added, 1 = full added, >1 = amplified breeding perturbation added
+# Final, combined perturbation will be EKF_pert + (TUNING_FACTOR*breeding_pert)
+# i.e. 0 = no breeding added, 1 = fully added, >1 = amplified breeding perturbation added
 TUNING_FACTOR = os.getenv('TUNING_FACTOR')
 
 # actually overwrite the main perturbation files at the end of the script
 OVERWRITE_PERT_FILES = True
-
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
@@ -69,6 +68,8 @@ TUNING_FACTOR_FLOAT = float(TUNING_FACTOR)
 if TUNING_FACTOR_FLOAT < 0.0:
     raise ValueError('TUNING_FACTOR value of {0} is invalid. MUst be set >0.0'.format(TUNING_FACTOR_FLOAT))
 
+# ------------------------------------
+
 # Configuration:
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
@@ -85,6 +86,8 @@ STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK]
 MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
 STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+
+# ------------------------------------
 
 
 class CachingOperator(mule.DataOperator):
@@ -117,8 +120,6 @@ class CachingOperator(mule.DataOperator):
         any subsequent calls the data is referenced
         directly from the "_data" attribute.
         """
-
-        # return src_field.get_data()
 
         if not hasattr(src_field, "_data"):
             src_field._data = src_field.get_data()
@@ -209,10 +210,9 @@ def load_soil_data(stash_and_constraints, cache=False):
 
     if isinstance(ff_file, str):
         ff_obj = mule.load_umfile(ff_file)
-        ff_obj.remove_empty_lookups()
     else:
         ff_obj = ff_file
-        ff_obj.remove_empty_lookups()
+    ff_obj.remove_empty_lookups()
 
     ff_data = {}
     for field in ff_obj.fields:
@@ -289,9 +289,7 @@ def load_prev_ens_bpert_data():
     # file with pre-calculated breeding perturbations (valid for t-3 this cycle)
     ens_smc_bpert_file = engl_prev_cycle_bpert_filename()
     # data file to open:
-    # ff_file_in = mule.load_umfile(smc_src_file)
     ff_file_in = mule.DumpFile.from_file(ens_smc_bpert_file)
-    #     raise ValueError("wrong file type")
     ff_file_in.remove_empty_lookups()
 
     # pull out the fields:
@@ -336,8 +334,7 @@ def load_combine_ekf_bpert():
     bpert_fields, ff_file_in = load_prev_ens_bpert_data()
     landsea_field = bpert_fields[STASH_LAND_SEA_MASK]
 
-
-    # Combined perturbation from breeding method (bpert) with the EKF pertubation, for each soil level.
+    # Combined perturbation from breeding method (bpert) with the EKF perturbation, for each soil level.
     # Use TUNING_FACTOR to scale the amount of bpert to add (scaling applied equally to all levels).
     tuning_factor_scaling = mule.operators.ScaleFactorOperator(TUNING_FACTOR_FLOAT)
     adder = mule.operators.AddFieldsOperator(preserve_mdi=True)
@@ -361,12 +358,10 @@ def save_comb_pert(soil_pert, landsea_field):
     output_pert_file = engl_cycle_smc_filename()
     tmp_output_pert_file = output_pert_file + '_tmp.ff'
 
-    # pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)  # the full existing file
-    #mule.load_umfile(ff_file)
-    pert_ff_in = mule.load_umfile(output_pert_file)  #
+    pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)  # the full existing file
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
 
-    # Remove the level_dependend_constants fixed header if present, as it is no longer needed in an ancillary file and
+    # Remove the level_dependent_constants fixed header if present, as it is no longer needed in an ancillary file and
     # mule will not save file with it in.
     if hasattr(pert_ff_out, 'level_dependent_constants'):
         pert_ff_out.level_dependent_constants = None
@@ -393,12 +388,13 @@ def save_comb_pert(soil_pert, landsea_field):
             pert_ff_out.fields.append(field)
             if template_time_field is None:
                 template_time_field = field
-    # # does the pert_ff_out have a land sea mask already?
+    # add land-sea mask if not present already
     if not out_pert_has_lsm:
         # add it:
         pert_ff_out.fields.append(landsea_field)
 
     # Now add in the perturbations:
+    # Correct times to ensure validity time matches
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
             # write out each level (the order now matters!):
@@ -408,7 +404,7 @@ def save_comb_pert(soil_pert, landsea_field):
                 # and append:
                 pert_ff_out.fields.append(soil_pert[stash][level])
         else:
-            # set_time_metadata(soil_comb_pert[stash], template_time_field)
+            set_time_metadata(soil_comb_pert[stash], template_time_field)
             pert_ff_out.fields.append(soil_pert[stash])
 
     # pert_ff_out.validate
