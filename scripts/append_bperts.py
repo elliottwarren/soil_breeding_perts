@@ -34,11 +34,11 @@ ROSE_DATAC = os.getenv('ROSE_DATAC')
 # ensemble member
 ENS_MEMBER = os.getenv('ENS_MEMBER')
 
-# breeding perturbation data from the previous cycle
-ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
+# breeding perturbation data from the previous cycle for this member (full path)
+ENS_SOIL_BPERT_FILEPATH = os.getenv('ENS_SOIL_BPERT_FILEPATH')
 
-# directory with the existing soil EKF perturbations for this member
-ENS_SOIL_DIR = os.getenv('ENS_SOIL_DIR')
+# filepath with the existing soil EKF perturbations for this member
+ENS_SOIL_EKF_FILEPATH = os.getenv('ENS_SOIL_EKF_FILEPATH')
 
 # tuning factor to determine how much of the breeding perturbation to add to the existing EKF perturbation.
 # Final, combined perturbation will be EKF_pert + (TUNING_FACTOR*breeding_pert)
@@ -53,10 +53,12 @@ if ROSE_DATACPT6H is None:
     ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'
     ENS_MEMBER = '1'
-    ENS_PERT_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
-                   'engl_smc/engl_smc_bpert'
-    ENS_SOIL_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/' \
-                  'engl_um_{0:03d}'.format(int(ENS_MEMBER))  # made to match the ENS_MEMBER
+    ENS_SOIL_BPERT_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
+                   'engl_smc/engl_smc_bpert/engl_smc_bpert_{0:03d}'.format(int(ENS_MEMBER))
+    # ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
+    #                         'engl_surf_inc' - Breo's change
+    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
+                            'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))
     TUNING_FACTOR = '1'
     OVERWRITE_PERT_FILES = False
 
@@ -183,14 +185,6 @@ def set_time_metadata(data_field, time_template_field):
     return
 
 
-# filename creation functions
-
-
-def engl_cycle_smc_filename():
-    """ locates soil moisture content data for this current cycle"""
-    return '{0}/engl_surf_inc'.format(ENS_SOIL_DIR)
-
-
 # loading functions
 
 def load_soil_data(stash_and_constraints, cache=False):
@@ -205,8 +199,8 @@ def load_soil_data(stash_and_constraints, cache=False):
     :return: ff_obj: (object) the UM file read in
     """
 
-    # identify engl_smc file to load, containing soil moisture and temperature with existing EKF perturbation
-    ff_file = engl_cycle_smc_filename()
+    # identify file with existing EKF perturbation
+    ff_file = ENS_SOIL_EKF_FILEPATH
 
     if isinstance(ff_file, str):
         ff_obj = mule.load_umfile(ff_file)
@@ -271,10 +265,6 @@ def load_prev_ens_bpert_data():
     :return: ff_file_in (object) bpert file
     """
 
-    def engl_prev_cycle_bpert_filename():
-        """ locates breeding pertubations calulated from t+6 of the last cycle"""
-        return '{0}/engl_smc_bpert_{1}'.format(ENS_PERT_DIR, mem_to_str(ENS_MEMBER_INT))
-
     # load in the required data for each file:
     # for member in MEMBERS_PERT_INTS:
 
@@ -286,10 +276,8 @@ def load_prev_ens_bpert_data():
         else:
             bpert_data_in[stash] = []
 
-    # file with pre-calculated breeding perturbations (valid for t-3 this cycle)
-    ens_smc_bpert_file = engl_prev_cycle_bpert_filename()
     # data file to open:
-    ff_file_in = mule.DumpFile.from_file(ens_smc_bpert_file)
+    ff_file_in = mule.DumpFile.from_file(ENS_SOIL_BPERT_FILEPATH)
     ff_file_in.remove_empty_lookups()
 
     # pull out the fields:
@@ -355,7 +343,7 @@ def load_combine_ekf_bpert():
 def save_comb_pert(soil_pert, landsea_field):
 
     # now write out the perturbation on top of the fields in the actual perturbation file.
-    output_pert_file = engl_cycle_smc_filename()
+    output_pert_file = ENS_SOIL_EKF_FILEPATH
     tmp_output_pert_file = output_pert_file + '_tmp.ff'
 
     pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)  # the full existing file
