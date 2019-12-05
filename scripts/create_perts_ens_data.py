@@ -33,9 +33,6 @@ NUM_PERT_MEMBERS = os.getenv('NUM_PERT_MEMBERS')
 # cycle directory
 ROSE_DATAC = os.getenv('ROSE_DATAC')
 
-# directory the ensemble mean file will be saved in
-ENS_MEAN_DIR = os.getenv('ENS_MEAN_DIR')
-
 # directory the ensemble perturbation files will be saved in
 # named [engl_smc_bpert] to differentiate the perturbations as being produced from the breeding method
 ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
@@ -48,7 +45,6 @@ if NUM_PERT_MEMBERS is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
-    ENS_MEAN_DIR = ROSE_DATAC + '/engl_smc'
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
     DIAGNOSTICS = True
 
@@ -318,12 +314,12 @@ def save_ens_mean(ens_data, ens_mean_data, in_files):
     :return:
     """
 
-    # Ensure ENS_MEAN_DIR exists
-    if os.path.isdir(ENS_MEAN_DIR) is False:
+    # Ensure smc directory exists to save into
+    if os.path.isdir(ROSE_DATAC + '/engl_smc') is False:
         # use mkdir -p (recursive dir creation) as pythonic equivalent functions variy between Python2 and Python3
-        os.system('mkdir -p '+ENS_MEAN_DIR)
+        os.system('mkdir -p '+ROSE_DATAC + '/engl_smc')
 
-    ens_mean_filepath = ENS_MEAN_DIR + '/smc_ens_mean'
+    ens_mean_filepath = ROSE_DATAC + '/engl_smc/smc_ens_mean'
     # open a FieldFile object:
     ens_mean_ff = in_files[0].copy(include_fields=False)
 
