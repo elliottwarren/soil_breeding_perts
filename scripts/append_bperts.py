@@ -38,7 +38,7 @@ ENS_MEMBER = os.getenv('ENS_MEMBER')
 ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 
 # directory with the existing soil EKF perturbations for this member
-ENS_SMC_DIR = os.getenv('ENS_SMC_DIR')
+ENS_SOIL_DIR = os.getenv('ENS_SOIL_DIR')
 
 # tuning factor to determine how much of the breeding perturbation to add to the existing EKF perturbation.
 # Final, combined perturbation will be EKF_pert + (TUNING_FACTOR*breeding_pert)
@@ -55,7 +55,7 @@ if ROSE_DATACPT6H is None:
     ENS_MEMBER = '1'
     ENS_PERT_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
                    'engl_smc/engl_smc_bpert'
-    ENS_SMC_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/' \
+    ENS_SOIL_DIR = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/' \
                   'engl_um_{0:03d}'.format(int(ENS_MEMBER))  # made to match the ENS_MEMBER
     TUNING_FACTOR = '1'
     OVERWRITE_PERT_FILES = False
@@ -188,7 +188,7 @@ def set_time_metadata(data_field, time_template_field):
 
 def engl_cycle_smc_filename():
     """ locates soil moisture content data for this current cycle"""
-    return '{0}/engl_surf_inc'.format(ENS_SMC_DIR)
+    return '{0}/engl_surf_inc'.format(ENS_SOIL_DIR)
 
 
 # loading functions
