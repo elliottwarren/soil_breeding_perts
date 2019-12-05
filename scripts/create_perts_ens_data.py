@@ -37,6 +37,9 @@ ROSE_DATAC = os.getenv('ROSE_DATAC')
 # named [engl_smc_bpert] to differentiate the perturbations as being produced from the breeding method
 ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 
+# filename of dump with soil variables in that will be used for members (not the full filepath)
+ENS_SOIL_DUMP_FILE = os.getenv('ENS_SOIL_DUMP_FILE')
+
 # Diagnostics - True = save ensemble mean for analysis
 # Set False for routine runs
 DIAGNOSTICS = False
@@ -46,6 +49,7 @@ if NUM_PERT_MEMBERS is None:
     NUM_PERT_MEMBERS = '3'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
+    ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
 
 # conversions to type:
@@ -137,8 +141,7 @@ def mem_to_str(member):
 def engl_cycle_tplus3_dump(member):
 
     """ locates T+6 hour start dump from the current cycle for an ensemble member"""
-    # ToDo set the filename (da003) to be an environment variable passed down to python script
-    return '{0}/engl_um/engl_um_{1}/englaa_da003'.format(ROSE_DATAC, mem_to_str(member))
+    return '{0}/engl_um/engl_um_{1}/{2}'.format(ROSE_DATAC, mem_to_str(member), ENS_SOIL_DUMP_FILE)
 
 
 def engl_cycle_bpert_filename(member):
