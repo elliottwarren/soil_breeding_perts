@@ -49,7 +49,8 @@ if NUM_PERT_MEMBERS is None:
     NUM_PERT_MEMBERS = '3'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
-    ENS_SOIL_DUMP_FILE = 'englaa_da003'
+    ENS_SOIL_DUMP_FILE = 'englaa_da003'  # Breo's change
+    # ENS_SOIL_DUMP_FILE = 'englaa_da006'  # before Breo's change
     DIAGNOSTICS = True
 
 # conversions to type:
