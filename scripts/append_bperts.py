@@ -206,7 +206,6 @@ def load_soil_EFK_data(stash_and_constraints, cache=False):
     """
     Loads EKF soil data
 
-    Returns the requested FieldsFile data, and the FieldsFile object
     :param stash_and_constraints: (dictionary) stash codes and additional constraints to load
     :param cache: (bool) To use mule cache functionality to assist loading
     :return: ff_data: (dictionary) soil data fields from current cycle
