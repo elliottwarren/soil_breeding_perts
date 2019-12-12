@@ -45,6 +45,7 @@ ENS_SOIL_DUMP_FILE = os.getenv('ENS_SOIL_DUMP_FILE')
 DIAGNOSTICS = False
 
 if NUM_PERT_MEMBERS is None:
+    os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
