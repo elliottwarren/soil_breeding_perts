@@ -54,10 +54,10 @@ if ROSE_DATACPT6H is None:
     ENS_MEMBER = '1'
     ENS_SOIL_BPERT_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
                    'engl_smc/engl_smc_bpert/engl_smc_bpert_{0:03d}'.format(int(ENS_MEMBER))
-    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
-                            'engl_um_{0:03d}/engl_surf_inc'.format(int(ENS_MEMBER))  # Breo's change
-    # ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
-    #                         'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))  # before Breo's change
+    #ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
+    #                        'engl_um_{0:03d}/engl_surf_inc'.format(int(ENS_MEMBER))  # Breo's change
+    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
+                             'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))  # before Breo's change
     TUNING_FACTOR = '1'
     OVERWRITE_PERT_FILES = False
 
@@ -341,6 +341,8 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
         # breeding perturbation file is a dump file, so convert it to a fields file for saving
         ensure_fields_file()
 
+    os.system('echo file being saved using '+output_pert_file+' as a template')
+
     # now go through the fields in the pert_ff_in and as long as they are not duplicates
     # of the fields in the this_perts object, add them to pert_ff_out.
     #
@@ -375,6 +377,9 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
                 pert_ff_out.fields.append(soil_pert[stash][level])
         else:
             pert_ff_out.fields.append(soil_pert[stash])
+
+    # remove dump level_dependent_headers
+    #pert_ff_out
 
     # pert_ff_out.validate to check validity
     pert_ff_out.to_file(tmp_output_pert_file)
