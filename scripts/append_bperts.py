@@ -292,7 +292,7 @@ def load_ekf_combine_with_bpert(bpert_scaled):
     for stash in STASH_TO_MAKE_PERTS:
         for level, bpert_l in bpert_scaled[stash].iteritems():
             ekf_pert_l = soil_fields[stash][level]
-            soil_total_pert[stash][level] = adder([bpert_l, ekf_pert_l])
+            soil_total_pert[stash][level] = adder([ekf_pert_l, bpert_l])
 
     return soil_total_pert
 
@@ -316,30 +316,30 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
         pert_ff_out.fixed_length_header.dataset_type = 3
         return
 
-    def ensure_ancil_file():
+    def ensure_ancil_file(pert_ff_out):
         # If file is an ancillary (dataset_type = 4) and has level_dependent_constants as a header...
         # Remove the level_dependent_constants fixed header, as it should not exist in an ancillary file and
         # mule will not save file with it in.
-        if (pert_ff_in.fixed_length_header.dataset_type == 4) & hasattr(pert_ff_out, 'level_dependent_constants'):
+        if (pert_ff_out.fixed_length_header.dataset_type == 4) & hasattr(pert_ff_out, 'level_dependent_constants'):
             pert_ff_out.level_dependent_constants = None
         return
 
     # Ideally use the existing EKF file as a template
-    if os.path.exists(ENS_SOIL_EKF_FILEPATH):
-        output_pert_file = ENS_SOIL_EKF_FILEPATH
-        tmp_output_pert_file = output_pert_file + '_tmp.ff'
-        pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
-        pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
-        # EKF file is an ancillary that can contain bad headers, so ensure it is suitable for saving as an ancillary.
-        ensure_ancil_file()
-    else:
-        # Use the existing breeding perturbation file as a template
-        output_pert_file = ENS_SOIL_BPERT_FILEPATH
-        tmp_output_pert_file = output_pert_file + '_tmp.ff'
-        pert_ff_in = mule.FieldsFile.from_file(output_pert_file, remove_empty_lookups=True)
-        pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
-        # breeding perturbation file is a dump file, so convert it to a fields file for saving
-        ensure_fields_file()
+    #if os.path.exists(ENS_SOIL_EKF_FILEPATH):
+    output_pert_file = ENS_SOIL_EKF_FILEPATH
+    tmp_output_pert_file = output_pert_file + '_tmp.ff'
+    pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
+    pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
+    # EKF file is an ancillary that can contain bad headers, so ensure it is suitable for saving as an ancillary.
+    ensure_ancil_file(pert_ff_out)
+    # else:
+    #     # Use the existing breeding perturbation file as a template
+    #     output_pert_file = ENS_SOIL_BPERT_FILEPATH
+    #     tmp_output_pert_file = output_pert_file + '_tmp.ff'
+    #     pert_ff_in = mule.FieldsFile.from_file(output_pert_file, remove_empty_lookups=True)
+    #     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
+    #     # breeding perturbation file is a dump file, so convert it to a fields file for saving
+    #     ensure_fields_file()
 
     os.system('echo file being saved using '+output_pert_file+' as a template')
 
@@ -406,7 +406,8 @@ if __name__ == '__main__':
     if os.path.exists(ENS_SOIL_EKF_FILEPATH):
         total_pert = load_ekf_combine_with_bpert(bpert_scaled)
     else:
-        total_pert = bpert_scaled
+        raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
+        #total_pert = bpert_scaled
 
     # save total perturbations in the original perturbation file
     save_total_pert(total_pert, bpert_landsea_field)
