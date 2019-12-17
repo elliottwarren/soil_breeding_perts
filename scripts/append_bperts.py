@@ -90,6 +90,8 @@ STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # ------------------------------------
 
+def validate_overide(*args, **kwargs):
+    pass
 
 class CachingOperator(mule.DataOperator):
 
@@ -331,7 +333,7 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
     pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
     # EKF file is an ancillary that can contain bad headers, so ensure it is suitable for saving as an ancillary.
-    ensure_ancil_file(pert_ff_out)
+    #ensure_ancil_file(pert_ff_out)
     # else:
     #     # Use the existing breeding perturbation file as a template
     #     output_pert_file = ENS_SOIL_BPERT_FILEPATH
@@ -378,10 +380,8 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
         else:
             pert_ff_out.fields.append(soil_pert[stash])
 
-    # remove dump level_dependent_headers
-    #pert_ff_out
-
-    # pert_ff_out.validate to check validity
+    # overide validate function to keep the level dependent constants in the ancillary file and save
+    pert_ff_out.validate = validate_overide
     pert_ff_out.to_file(tmp_output_pert_file)
 
     # if we are done, and this id being run 'for real'
