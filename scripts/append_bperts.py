@@ -330,7 +330,8 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
     #if os.path.exists(ENS_SOIL_EKF_FILEPATH):
     output_pert_file = ENS_SOIL_EKF_FILEPATH
     tmp_output_pert_file = output_pert_file + '_tmp.ff'
-    pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
+    # pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
+    pert_ff_in = mule.AncilFile.from_file(output_pert_file)
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
     # EKF file is an ancillary that can contain bad headers, so ensure it is suitable for saving as an ancillary.
     #ensure_ancil_file(pert_ff_out)
