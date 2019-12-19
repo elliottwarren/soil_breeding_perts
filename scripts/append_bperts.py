@@ -54,10 +54,10 @@ if ROSE_DATACPT6H is None:
     ENS_MEMBER = '1'
     ENS_SOIL_BPERT_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
                    'engl_smc/engl_smc_bpert/engl_smc_bpert_{0:03d}'.format(int(ENS_MEMBER))
-    #ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
-    #                        'engl_um_{0:03d}/engl_surf_inc'.format(int(ENS_MEMBER))  # Breo's change
-    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
-                             'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))  # before Breo's change
+    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
+                            'engl_um_{0:03d}/engl_surf_inc'.format(int(ENS_MEMBER))  # Breo's change
+    #ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
+    #                         'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))  # before Breo's change
     TUNING_FACTOR = '1'
     OVERWRITE_PERT_FILES = False
 
@@ -382,7 +382,7 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
             pert_ff_out.fields.append(soil_pert[stash])
 
     # overide validate function to keep the level dependent constants in the ancillary file and save
-    pert_ff_out.validate = validate_overide
+    # pert_ff_out.validate = validate_overide
     pert_ff_out.to_file(tmp_output_pert_file)
 
     # if we are done, and this id being run 'for real'
