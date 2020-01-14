@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 """
 Load in breeding perturbations, calculated from and valid for t+3 in the previous cycle. Then,
@@ -10,8 +10,10 @@ Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks
 
 Tested versions using canned data:
 python 2.7.16
+python 3.7.5
 mule 2019.01.1
-numpy 1.16.5
+numpy 1.16.5 (python2)
+numpy 1.17.3 (python3)
 
 Testing (including soil temperature) carried out in:
 /data/users/ewarren/R2O_projects/soil_moisture_pertubation/
@@ -67,7 +69,7 @@ TUNING_FACTOR_FLOAT = float(TUNING_FACTOR)
 
 # quick check TUNING_FACTOR is not less than 0
 if TUNING_FACTOR_FLOAT <= 0.0:
-    raise ValueError('TUNING_FACTOR value of {0} is invalid. MUst be set >= 0.0'.format(TUNING_FACTOR_FLOAT))
+    raise ValueError('TUNING_FACTOR value of {0} is invalid. Must be set >= 0.0'.format(TUNING_FACTOR_FLOAT))
 
 # ------------------------------------
 
@@ -156,7 +158,6 @@ def load_prev_ens_bpert_data():
 
     # data file to open:
     ff_file_in = mule.load_umfile(ENS_SOIL_BPERT_FILEPATH)
-    #ff_file_in = mule.DumpFile.from_file(ENS_SOIL_BPERT_FILEPATH)
     ff_file_in.remove_empty_lookups()
 
     # pull out the fields:
@@ -180,7 +181,8 @@ def load_scale_bpert():
 
     """
     Load and scale the breeding perturbations
-    :return:
+    :return: bpert_scaled
+    :return  landsea_field
     """
 
     # load in the breeding perturbation file, for this member, from the last cycle
@@ -194,7 +196,7 @@ def load_scale_bpert():
 
     bpert_scaled = {stash: {} for stash in STASH_TO_MAKE_PERTS}
     for stash in STASH_TO_MAKE_PERTS:
-        for level in bpert_fields[stash].iterkeys():
+        for level in bpert_fields[stash].keys():
             bpert_l = bpert_fields[stash][level]
             bpert_scaled[stash][level] = tuning_factor_scaling(bpert_l)
 
@@ -292,7 +294,7 @@ def load_ekf_combine_with_bpert(bpert_scaled):
 
     soil_total_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
     for stash in STASH_TO_MAKE_PERTS:
-        for level, bpert_l in bpert_scaled[stash].iteritems():
+        for level, bpert_l in bpert_scaled[stash].items():
             ekf_pert_l = soil_fields[stash][level]
             soil_total_pert[stash][level] = adder([ekf_pert_l, bpert_l])
 
@@ -327,22 +329,11 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
         return
 
     # Ideally use the existing EKF file as a template
-    #if os.path.exists(ENS_SOIL_EKF_FILEPATH):
     output_pert_file = ENS_SOIL_EKF_FILEPATH
     tmp_output_pert_file = output_pert_file + '_tmp.ff'
     # pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
     pert_ff_in = mule.AncilFile.from_file(output_pert_file)
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
-    # EKF file is an ancillary that can contain bad headers, so ensure it is suitable for saving as an ancillary.
-    #ensure_ancil_file(pert_ff_out)
-    # else:
-    #     # Use the existing breeding perturbation file as a template
-    #     output_pert_file = ENS_SOIL_BPERT_FILEPATH
-    #     tmp_output_pert_file = output_pert_file + '_tmp.ff'
-    #     pert_ff_in = mule.FieldsFile.from_file(output_pert_file, remove_empty_lookups=True)
-    #     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
-    #     # breeding perturbation file is a dump file, so convert it to a fields file for saving
-    #     ensure_fields_file()
 
     os.system('echo file being saved using '+output_pert_file+' as a template')
 
@@ -408,7 +399,6 @@ if __name__ == '__main__':
         total_pert = load_ekf_combine_with_bpert(bpert_scaled)
     else:
         raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
-        #total_pert = bpert_scaled
 
     # save total perturbations in the original perturbation file
     save_total_pert(total_pert, bpert_landsea_field)
