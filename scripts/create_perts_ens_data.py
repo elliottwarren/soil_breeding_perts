@@ -1,4 +1,4 @@
-#!/usr/bin/env python2
+#!/usr/bin/env python3
 
 """
 Calculate perturbations of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
@@ -12,8 +12,10 @@ Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks
 
 Tested versions using canned data:
 python 2.7.16
+python 3.7.5
 mule 2019.01.1
-numpy 1.16.5
+numpy 1.16.5 (python2)
+numpy 1.17.3 (python3)
 
 Testing carried out in:
 /data/users/ewarren/R2O_projects/soil_moisture_pertubation/
