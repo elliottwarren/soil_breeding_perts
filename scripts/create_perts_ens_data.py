@@ -24,6 +24,7 @@ Note: Global variables named in all caps e.g. NUM_PERT_MEMBERS
 """
 
 import os
+import numpy as np
 
 import mule
 import mule.operators
@@ -67,21 +68,25 @@ MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
 STASH_LAND_SEA_MASK = 30
 STASH_TSOIL = 20
 STASH_SMC = 9
+STASH_LANDFRAC = 216
+# pseudo level for land-ice mask
+PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK]
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_LANDFRAC]
 
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
 STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
+# constraints on which fields to load in for a STASH variable
+STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
+
 # layer depth of each soil layer, to be set once input files are read in:
 DZ_SOIL_LEVELS = {}
 
-# pseudo level for land-ice mask
-PSEUDO_LEVEL_LANDICE = 9
 
 # ------------------------------------------
 
@@ -161,17 +166,23 @@ def engl_cycle_bpert_filename(member):
 # loading functions
 
 
-def load_engl_soil_member_data():
+def load_engl_member_data():
 
     """
     Loads in input data from ensemble run (all members). This is from a large number of files, and sorted into a dict
     structure by field, level to produce a list containing the data for ensemble members.
 
-    :return: ens_data (dictionary, keys = STASH, level; items = fields], e.g. {9: {1: [field1a, field2a, field3a],
+    :return: ens_data (dictionary, keys = STASH, level; items = member fields], e.g.{9: {1: [field1a, field2a, field3a],
         2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are levels. The list of fields within are from all the
         different members and have length n where n = maximum number of members): all ensemble field data for STASH
         variables.
     :return: ens_ff_files (list): field files for all members
+
+    Extra help:
+    field.lblev = level code (e.g. 1 to 70. 3 special entries for special fields e.g. 7777 or 8888 (see UM F03 docs.)
+        soil fields use lblev as their level. Land fraction has special 4 digit value here instead.
+    field.lbuser4 = stash code
+    field.lbuser5 = pseudo level (land surface tiles will have these)
     """
 
     # set up the returned data structure...
@@ -196,17 +207,30 @@ def load_engl_soil_member_data():
 
         # pull out the fields:
         for field in ff_file_in.fields:
-            # is this the SMC?
+            # is this the SMC or TSOIL?
             if field.lbuser4 in STASH_TO_LOAD:
                 if field.lbuser4 in MULTI_LEVEL_STASH:
-                    # multi-level fields are a dict, with a list for each level
-                    if field.lblev in ens_data[field.lbuser4].keys():
-                        ens_data[field.lbuser4][field.lblev].append(field)
+
+                    # 1. special instance for landfrac
+                    if field.lbuser4 == STASH_LANDFRAC:
+                        if field.lbuser5 in STASH_LEVEL_CONSTRAINTS[STASH_LANDFRAC]:
+                            # Read in landfrac pseudo-level...
+                            if field.lbuser5 in ens_data[field.lbuser4].keys():
+                                ens_data[field.lbuser4][field.lbuser5].append(field)
+                            else:
+                                ens_data[field.lbuser4][field.lbuser5] = [field]
+
                     else:
-                        ens_data[field.lbuser4][field.lblev] = [field]
+                        # 2. Read in multi-level stash...
+                        if field.lblev in ens_data[field.lbuser4].keys():
+                            ens_data[field.lbuser4][field.lblev].append(field)
+                        else:
+                            ens_data[field.lbuser4][field.lblev] = [field]
+
                 else:
-                    # single level fields are a flat list:
+                    # 3. single level fields are a flat list:
                     ens_data[field.lbuser4].append(field)
+
         # keep the fieldsfile objects for reference:
         ens_ff_files.append(ff_file_in)
 
@@ -310,6 +334,45 @@ def in_data_minus_mean(in_data, mean_data):
 
     return pert_data
 
+
+def zero_land_ice_perts(pert_data, ens_data):
+
+    """
+
+    :param ens_perts:
+    :return:
+    """
+
+    for member in MEMBERS_PERT_INTS:
+
+        # load in the land-ice mask for this member (member-1 because index 0 of ens_data[...][...] relates to member 1)
+        landice_data = ens_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE][member-1].get_data()
+
+        # create land-ice mask
+        landice_mask = np.logical_and(landice_data == 1.0,
+                                      landice_data != ens_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE][member-1].bmdi)
+
+        for stash in STASH_TO_MAKE_PERTS:
+            if stash in MULTI_LEVEL_STASH:
+                for level in pert_data[stash]:
+
+                    # extract out this member's pert data field
+                    pert_data_i = pert_data[stash][level][member-1]
+
+
+                    # extract data and set values to 0.0 where there is ice
+                    tmp_pert_data = pert_data_i.get_data()
+                    tmp_pert_data[landice_mask] = 0.0
+
+                    # now put that data back into the pert_data_i field:
+                    array_provider = mule.ArrayDataProvider(tmp_pert_data)
+                    pert_data_i.set_data_provider(array_provider)
+
+                    # and explicitly put that field back into the ens pert dictionary encase it deep copied the variable
+                    pert_data[stash][level][member-1] = pert_data_i
+
+    return pert_data
+
 # saving functions
 
 
@@ -402,8 +465,8 @@ if __name__ == '__main__':
     3) Save the ensemble perturbations
     """
 
-    # load the smc and tsoil input data for all members:
-    ens_data, ens_ff_files = load_engl_soil_member_data()
+    # load the SMC, TSOIL and other input data for all members:
+    ens_data, ens_ff_files = load_engl_member_data()
 
     # mean the required fields
     ens_mean = mean_ens_data(ens_data)
@@ -411,6 +474,9 @@ if __name__ == '__main__':
     # create perturbations pert_i = (member_i - mean(member_k)),
     # where member_k is a vector and k = 1 ... n maximum members
     ens_perts = in_data_minus_mean(ens_data, ens_mean)
+
+    # set pert values of SMC and TSOIL to 0 where ice is present on land
+    ens_perts = zero_land_ice_perts(ens_perts, ens_data)
 
     # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
     if DIAGNOSTICS is True:
