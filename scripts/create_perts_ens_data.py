@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env/python
 
 """
 Calculate perturbations of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
@@ -79,6 +79,9 @@ STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # layer depth of each soil layer, to be set once input files are read in:
 DZ_SOIL_LEVELS = {}
+
+# pseudo level for land-ice mask
+PSEUDO_LEVEL_LANDICE = 9
 
 # ------------------------------------------
 
@@ -343,6 +346,8 @@ def save_ens_mean(ens_data, ens_mean_data, in_files):
 
     # save
     ens_mean_ff.to_file(ens_mean_filepath)
+
+    print('saved: '+ens_mean_filepath)
 
     return
 
