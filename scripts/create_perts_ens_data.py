@@ -1,4 +1,4 @@
-#!/usr/bin/env/python
+#!/usr/bin/env python
 
 """
 Calculate perturbations of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
