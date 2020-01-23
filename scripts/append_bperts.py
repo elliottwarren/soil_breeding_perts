@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env/python
 
 """
 Load in breeding perturbations, calculated from and valid for t+3 in the previous cycle. Then,
@@ -289,14 +289,17 @@ def load_ekf_combine_with_bpert(bpert_scaled):
     # load in the EKF and other
     soil_fields, smc_ff = load_soil_EFK_data(stash_from_dump, cache=True)
 
-    # Combined perturbation from breeding method (bpert) with the EKF perturbation, for each soil level.
-    adder = mule.operators.AddFieldsOperator(preserve_mdi=True)
+    # Combined perturbation from breeding method (bpert) with the EKF perturbation, for each soil level (original).
+    #adder = mule.operators.AddFieldsOperator(preserve_mdi=True)
+
+    # reduce EKF by the bpert perturbation (now that EKF is done via IAU).
+    subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
 
     soil_total_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
     for stash in STASH_TO_MAKE_PERTS:
         for level, bpert_l in bpert_scaled[stash].items():
             ekf_pert_l = soil_fields[stash][level]
-            soil_total_pert[stash][level] = adder([ekf_pert_l, bpert_l])
+            soil_total_pert[stash][level] = subber([ekf_pert_l, bpert_l])
 
     return soil_total_pert
 
