@@ -479,8 +479,8 @@ if __name__ == '__main__':
     ens_perts = zero_land_ice_perts(ens_perts, ens_data)
 
     # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
-    if DIAGNOSTICS is True:
-        save_ens_mean(ens_data, ens_mean, ens_ff_files)
+    # if DIAGNOSTICS is True:
+    save_ens_mean(ens_data, ens_mean, ens_ff_files)
 
     # save ensemble perturbations (pert_i)
     save_ens_perts(ens_perts, ens_ff_files)
