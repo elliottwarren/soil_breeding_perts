@@ -1,11 +1,12 @@
 #!/usr/bin/env python
 
 """
-Calculate perturbations of soil moisture content (SMC) and soil temperature (TSOIL) from all ensemble members,
-using the breeding method. Data used is for t+3 of the current cycle and saves the output for each member
-separately in a 'bpert' file. Output gets used next cycle, then valid for t-3.
+Calculate the correction (perturbation) needed to recenter the mean of the ensemble, toward the ensemble control member.
+I.e. ensemble mean = 28, and control member = 32, then recentering correction to apply on all members on the next
+cycle is +4. Corrections applied to soil moisture content (SMC) and soil temperature (TSOIL). Data used is for t+3 of
+the current cycle. Output then gets used next cycle, and is valid for t-3.
 
-Perturbations calculated for each soil level as: each member minus the ensemble mean
+This script is doing the recentering step of the 'breeding method'.
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -56,6 +57,9 @@ if NUM_PERT_MEMBERS is None:
     ENS_SOIL_DUMP_FILE = 'englaa_da003'  # Breo's change
     # ENS_SOIL_DUMP_FILE = 'englaa_da006'  # before Breo's change
     DIAGNOSTICS = True
+
+# control member number (can be 0 or 000)
+CONTROL_MEMBER = 0
 
 # conversions to type:
 NUM_PERT_MEMBERS = int(NUM_PERT_MEMBERS)
@@ -150,27 +154,21 @@ def mem_to_str(member):
 # filename creation functions
 
 
-def engl_cycle_tplus3_dump(member):
+def engl_cycle_dump(member):
 
-    """ locates T+6 hour start dump from the current cycle for an ensemble member"""
+    """ locates hour start dump from the current cycle for an ensemble member (e.g. t+3)"""
     return '{0}/engl_um/engl_um_{1}/{2}'.format(ROSE_DATAC, mem_to_str(member), ENS_SOIL_DUMP_FILE)
-
-
-def engl_cycle_bpert_filename(member):
-
-    """ create filename for the breeding pertubation to be saved under, for an ensemble member"""
-    # extra 0 before the member number to be consistent with existing engl_smc pertubation files
-    return '{0}/engl_smc/engl_smc_bpert/engl_smc_bpert_{1}'.format(ROSE_DATAC, mem_to_str(member))
 
 
 # loading functions
 
 
-def load_engl_member_data():
+def load_engl_member_data(member_list):
 
     """
-    Loads in input data from ensemble run (all members). This is from a large number of files, and sorted into a dict
-    structure by field, level to produce a list containing the data for ensemble members.
+    Loads in input data from ensemble run members. This can be from a large number of files, and sorted into a dict
+    structure by field, level to produce a list containing the data for ensemble members. Can read in data from a single
+    member (e.g. control)
 
     :return: ens_data (dictionary, keys = STASH, level; items = member fields], e.g.{9: {1: [field1a, field2a, field3a],
         2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are levels. The list of fields within are from all the
@@ -185,6 +183,10 @@ def load_engl_member_data():
     field.lbuser5 = pseudo level (land surface tiles will have these)
     """
 
+    # ensure member_list is actually an iterable, if not already.
+    if isinstance(member_list, (float, int, str)):
+        member_list = [member_list]
+
     # set up the returned data structure...
     ens_data = {}
     for stash in STASH_TO_LOAD:
@@ -197,10 +199,10 @@ def load_engl_member_data():
     ens_ff_files = []
 
     # load in the required data for each file:
-    for member in MEMBERS_PERT_INTS:
+    for member in member_list:
 
         # file with SMC and TSOIL data (valid for t+3 for this cycle and t-3 next cycle)
-        soil_src_file = engl_cycle_tplus3_dump(member)
+        soil_src_file = engl_cycle_dump(member)
         # data file to open:
         ff_file_in = mule.DumpFile.from_file(soil_src_file)
         ff_file_in.remove_empty_lookups()
@@ -239,12 +241,12 @@ def load_engl_member_data():
         if stash in MULTI_LEVEL_STASH:
             for level in ens_data[stash]:
                 n_mems = len(ens_data[stash][level])
-                if n_mems != NUM_PERT_MEMBERS:
+                if n_mems != len(member_list):
                     raise ValueError('{} fields found in ensemble for STASH code {}, level {}, '
                                      'but NUM_PERT_MEMBERS ({}) is expected'.format(
-                                     n_mems, stash, level, NUM_PERT_MEMBERS))
+                                     n_mems, stash, level, len(member_list)))
         else:
-            if len(ens_data[stash]) != NUM_PERT_MEMBERS:
+            if len(ens_data[stash]) != len(member_list):
                 raise ValueError('Not all data found!')
 
     return ens_data, ens_ff_files
@@ -298,159 +300,128 @@ def mean_ens_data(in_data):
             # and cache the result  This means the timer is accurate.
             _ = mean_data[stash].get_data()
 
+    # add the land-sea mask
+    mean_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK][0]
+
+    # add the land-use masks
+    mean_data[STASH_LANDFRAC] = {key: item[0] for key, item in in_data[STASH_LANDFRAC].items()}
+
     return mean_data
 
 
-def in_data_minus_mean(in_data, mean_data):
+def mean_minus_control(control_data, mean_data):
 
     """
-    Subtracts the mean of a set of fields from the input data, to produce a perturbation
+    Subtracts the control field from the ensemble mean, for all required fields, to produce a correction. This
+    correction can be used in the next cycle to adjust each of the ensemble member's starting points, effectively
+    'centering' the ensembles analyses around the control.
 
-    :param in_data : (dictionary, keys = STASH, level; items = fields]): all ensemble data in. See [ens_data] in
+    :param control_data : (dictionary, keys = STASH, level; items = field]) same hierarchy as mean_data. Fields will
+                be within separate lists with only one entry. Therefore fields need to be indexed from
+                the list. i.e. [field], therefore control_data[stash][level]][0] to get the field.
     :param mean_data: (dictionary): ensemble mean
-    :return: pert_data: (dictionary): ensemble perturbations
+    :return: corrction_data: (dictionary): ensemble perturbations
     """
 
     subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
 
-    pert_data = {}
+    corrction_data = {}
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
-            pert_data[stash] = {}
-            for level in in_data[stash]:
-                # for this field and level, make a new field by looping through the input in_data,
-                # and the result is the in data, minus the mean:
-                pert_data[stash][level] = []
-                for member in in_data[stash][level]:
-                    pert_data[stash][level].append(subber([member, mean_data[stash][level]]))
+            corrction_data[stash] = {}
+            for level in control_data[stash]:
+
+                # ensemble mean field - control field
+                corrction_data[stash][level] = subber([mean_data[stash][level], control_data[stash][level][0]])
+
         else:
-            pert_data[stash] = []
-            for member in in_data[stash]:
-                pert_data[stash].append(subber([member, mean_data[stash]]))
+            # ensemble mean field - control field
+            corrction_data[stash] = subber([mean_data[stash], control_data[stash][0]])
 
     # now add the land sea mask from the first member as well.
-    # Set within a list to match the storage style of other STASH fields in the pert_data dictionary
-    pert_data[STASH_LAND_SEA_MASK] = [in_data[STASH_LAND_SEA_MASK][0]]
+    # Take the land-sea mask out of the single element lists
+    corrction_data[STASH_LAND_SEA_MASK] = control_data[STASH_LAND_SEA_MASK][0]
 
-    return pert_data
+    #corrction_data[STASH_LANDFRAC] = control_data[STASH_LANDFRAC]
+    # add the land use as well (taken the items out of a single element list
+    corrction_data[STASH_LANDFRAC] = {key: item[0] for key, item in control_data[STASH_LANDFRAC].items()}
+
+    return corrction_data
 
 
-def zero_land_ice_perts(pert_data, ens_data):
+def zero_land_ice_perts(corr_data):
 
     """
-
-    :param ens_perts:
-    :return:
+    The mule subtraction can introduce small non-zero values over ice where values were very close. This sets
+    the perturbations to be 0.0 over ice, regardless.
+    :param corr_data: ensemble mean - control, correction data.
+    :return corr_data
     """
 
-    for member in MEMBERS_PERT_INTS:
+    # load in the land-ice mask
+    landice_data = corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].get_data()
 
-        # load in the land-ice mask for this member (member-1 because index 0 of ens_data[...][...] relates to member 1)
-        landice_data = ens_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE][member-1].get_data()
+    # create land-ice mask
+    landice_mask = np.logical_and(landice_data == 1.0,
+                                  landice_data != corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].bmdi)
 
-        # create land-ice mask
-        landice_mask = np.logical_and(landice_data == 1.0,
-                                      landice_data != ens_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE][member-1].bmdi)
+    for stash in STASH_TO_MAKE_PERTS:
+        if stash in MULTI_LEVEL_STASH:
+            for level in corr_data[stash]:
 
-        for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for level in pert_data[stash]:
+                # extract data and set values to 0.0 where there is ice
+                tmp_pert_data = corr_data[stash][level].get_data()
+                tmp_pert_data[landice_mask] = 0.0
 
-                    # extract out this member's pert data field
-                    pert_data_i = pert_data[stash][level][member-1]
+                # now put that data back into the corr_data field:
+                array_provider = mule.ArrayDataProvider(tmp_pert_data)
+                corr_data[stash][level].set_data_provider(array_provider)
 
-
-                    # extract data and set values to 0.0 where there is ice
-                    tmp_pert_data = pert_data_i.get_data()
-                    tmp_pert_data[landice_mask] = 0.0
-
-                    # now put that data back into the pert_data_i field:
-                    array_provider = mule.ArrayDataProvider(tmp_pert_data)
-                    pert_data_i.set_data_provider(array_provider)
-
-                    # and explicitly put that field back into the ens pert dictionary encase it deep copied the variable
-                    pert_data[stash][level][member-1] = pert_data_i
-
-    return pert_data
+    return corr_data
 
 # saving functions
 
 
-def save_ens_mean(ens_data, ens_mean_data, in_files):
+def save_fields_file(data, in_files, filename):
 
     """
-    Additional function to save the ensemble mean calculated from mean_ens_data().
+    Additional function to save fields calculated. Intended for saving the ensemble mean, and the correction fields
+    separately.
 
-    :param ens_data: (dictionary): fields from all ensemble members (see [ens_data] in load_engl_smc_member_data)
-    :param ens_mean_data: (dictionary): ensemble mean for each variable and level
-    :param in_files: (list): list of file files for all member's data
+    :param data: (dictionary): fields needing to be saved
+    :param in_files: (list): list of file files for all member's used in creating [data]. Used to create a template.
+    :param filename (str): name of the file to save (not the full path)
     :return:
     """
 
     # Ensure smc directory exists to save into
     if os.path.isdir(ROSE_DATAC + '/engl_smc') is False:
-        # use mkdir -p (recursive dir creation) as pythonic equivalent functions variy between Python2 and Python3
+        # use mkdir -p (recursive dir creation) as equivalent pythonic functions vary between Python2 and Python3
         os.system('mkdir -p '+ROSE_DATAC + '/engl_smc')
 
-    ens_mean_filepath = ROSE_DATAC + '/engl_smc/smc_ens_mean'
+    ens_filepath = ROSE_DATAC + '/engl_smc/'+filename
     # open a FieldFile object:
-    ens_mean_ff = in_files[0].copy(include_fields=False)
+    ens_ff = in_files[0].copy(include_fields=False)
 
     # add the fields:
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
-            for level in ens_mean_data[stash]:
-                ens_mean_ff.fields.append(ens_mean_data[stash][level])
+            for level in data[stash]:
+                ens_ff.fields.append(data[stash][level])
         else:
-            ens_mean_ff.fields.append(STASH_TO_MAKE_PERTS[stash])
+            ens_ff.fields.append(data[stash])
 
-    # add land sea mask
-    ens_mean_ff.fields.append(ens_data[STASH_LAND_SEA_MASK][0])
+    # add land sea mask 
+    ens_ff.fields.append(data[STASH_LAND_SEA_MASK])
+
+    # add land use masks
+    for field in data[STASH_LANDFRAC].values():
+        ens_ff.fields.append(field)
 
     # save
-    ens_mean_ff.to_file(ens_mean_filepath)
+    ens_ff.to_file(ens_filepath)
 
-    print('saved: '+ens_mean_filepath)
-
-    return
-
-
-def save_ens_perts(in_pert_data, in_files):
-
-    """
-    Save ensemble perturbations for each member in a different file
-
-    :param in_pert_data: (dictionary): perturbation data
-    :param in_files: (list): list of field files for all members
-    :return:
-    """
-
-    # create directory in engl_smc to save the perturbations
-    # use mkdir -p to avoid errors due to varying python interpreter version
-    os.system('mkdir -p ' + ENS_PERT_DIR)
-
-    for member in MEMBERS_PERT_INTS:
-
-        # path to save under
-        ens_pert_filepath = engl_cycle_bpert_filename(member)
-
-        # open a fieldfile object:
-        ens_bpert_member_ff = in_files[0].copy(include_fields=False)
-        # ens_mean_ff.fixed_length_header.dataset_type = 3
-        # add the fields:
-        for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for level in in_pert_data[stash]:
-                    # ens_bpert_member_ff.fields.append(in_pert_data[stash][level])
-                    # member - 1 needed for indexing. E.g. member 1 index = 0
-                    ens_bpert_member_ff.fields.append(in_pert_data[stash][level][member-1])
-            else:
-                ens_bpert_member_ff.fields.append(STASH_TO_MAKE_PERTS[stash][member-1])
-
-        # add land sea mask
-        ens_bpert_member_ff.fields.append(ens_data[STASH_LAND_SEA_MASK][0])
-        # save
-        ens_bpert_member_ff.to_file(ens_pert_filepath)
+    print('saved: '+ens_filepath)
 
     return
 
@@ -461,28 +432,34 @@ if __name__ == '__main__':
     Top level soil moisture content (SMC) and soil temperature (TSOIL) perturbation routine
     1) Loads in data
     2) Produces the mean of the input fields
-    2a (added option) save ensemble mean
-    3) Save the ensemble perturbations
+    3) Produces the correction fields (ensemble mean - control field)
+    4) Checks correction fields
+    5) Save ensemble mean
+    6) Saves the correction
     """
 
+    ## Read
     # load the SMC, TSOIL and other input data for all members:
-    ens_data, ens_ff_files = load_engl_member_data()
+    ens_data, ens_ff_files = load_engl_member_data(MEMBERS_PERT_INTS)
 
-    # mean the required fields
+    # load the SMC, TSOIL and other input data for the control member only:
+    ctrl_data, ctrl_ff_files = load_engl_member_data(CONTROL_MEMBER)
+
+    ## Process
+    # create the mean for all required ensemble member fields
     ens_mean = mean_ens_data(ens_data)
 
-    # create perturbations pert_i = (member_i - mean(member_k)),
-    # where member_k is a vector and k = 1 ... n maximum members
-    ens_perts = in_data_minus_mean(ens_data, ens_mean)
+    # create the soil recentering correction (ensemble mean - control).
+    ens_correction = mean_minus_control(ctrl_data, ens_mean)
 
     # set pert values of SMC and TSOIL to 0 where ice is present on land
-    ens_perts = zero_land_ice_perts(ens_perts, ens_data)
+    ens_correction = zero_land_ice_perts(ens_correction)
 
+    ## Save
     # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
-    # if DIAGNOSTICS is True:
-    save_ens_mean(ens_data, ens_mean, ens_ff_files)
+    save_fields_file(ens_mean, ens_ff_files, 'engl_soil_mean')
 
-    # save ensemble perturbations (pert_i)
-    save_ens_perts(ens_perts, ens_ff_files)
+    # save the correction
+    save_fields_file(ens_correction, ctrl_ff_files, 'engl_soil_correction')
 
     exit(0)
