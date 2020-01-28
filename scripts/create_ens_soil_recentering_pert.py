@@ -429,7 +429,9 @@ def save_fields_file(data, in_files, filename):
 if __name__ == '__main__':
 
     """
-    Top level soil moisture content (SMC) and soil temperature (TSOIL) perturbation routine
+    Routine 1 of 2 for creating the ensemble soil moisture content (SMC) and soil temperature (TSOIL) perturbation 
+    correction.
+    
     1) Loads in data
     2) Produces the mean of the input fields
     3) Produces the correction fields (ensemble mean - control field)
