@@ -33,22 +33,11 @@ ROSE_DATACPT6H = os.getenv('ROSE_DATACPT6H')
 # this cycle directory
 ROSE_DATAC = os.getenv('ROSE_DATAC')
 
-# ensemble member
-ENS_MEMBER = os.getenv('ENS_MEMBER')
-
-# breeding perturbation data from the previous cycle for this member (full path)
-ENS_SOIL_BPERT_FILEPATH = os.getenv('ENS_SOIL_BPERT_FILEPATH')
+# ensemble correction data from the previous cycle for this member (full path)
+ENS_SOIL_CORR_FILEPATH = os.getenv('ENS_SOIL_CORR_FILEPATH')
 
 # filepath with the existing soil EKF perturbations for this member
 ENS_SOIL_EKF_FILEPATH = os.getenv('ENS_SOIL_EKF_FILEPATH')
-
-# tuning factor to determine how much of the breeding perturbation to add to the existing EKF perturbation.
-# Final, combined perturbation will be EKF_pert + (TUNING_FACTOR*breeding_pert)
-# i.e. 0 = no breeding added, 1 = fully added, >1 = amplified breeding perturbation added
-TUNING_FACTOR = os.getenv('TUNING_FACTOR')
-
-# actually overwrite the main perturbation files at the end of the script
-OVERWRITE_PERT_FILES = True
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
@@ -59,17 +48,6 @@ if ROSE_DATACPT6H is None:
                    'engl_smc/engl_soil_correction'
     ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
                             'engl_surf_inc'  # control member
-
-    TUNING_FACTOR = '1'
-    OVERWRITE_PERT_FILES = False
-
-# conversions to type:
-ENS_MEMBER_INT = int(ENS_MEMBER)
-TUNING_FACTOR_FLOAT = float(TUNING_FACTOR)
-
-# quick check TUNING_FACTOR is not less than 0
-if TUNING_FACTOR_FLOAT <= 0.0:
-    raise ValueError('TUNING_FACTOR value of {0} is invalid. Must be set >= 0.0'.format(TUNING_FACTOR_FLOAT))
 
 # ------------------------------------
 
@@ -92,8 +70,10 @@ STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # ------------------------------------
 
+
 def validate_overide(*args, **kwargs):
     pass
+
 
 class CachingOperator(mule.DataOperator):
 
@@ -130,23 +110,19 @@ class CachingOperator(mule.DataOperator):
             src_field._data = src_field.get_data()
         return src_field._data
 
-# load and process breeding functions
+
+# load and process functions
 
 
 def load_prev_ens_correction_data():
 
     """
-    Loads in previous cycle ensemble breeding perturbation data. Sorted into a dict structure by field, level to
-    produce a list containing the data for ensemble members.
-    E.g. {9: {1: [field1], 2: [field2], ...}} where 9 = STASH code and 1 and 2 are levels
+    Loads in the correction data (ensemble mean - control field) from the previous cycle. Sorted into a dict structure
+    by field E.g. {9: {1: [field1], 2: [field2], ...}} where 9 = STASH code and 1 and 2 are levels
 
     Also contains the land_sea mask (STASH = 30), required by the soil moisture content field
-    :return: bpert_data_in (dictionary) breeding perturbation data
-    :return: ff_file_in (object) bpert file
+    :return: corr_data_in (dictionary) correction data
     """
-
-    # load in the required data for each file:
-    # for member in MEMBERS_PERT_INTS:
 
     # set up the returned data structure...
     corr_data_in = {}
@@ -162,7 +138,6 @@ def load_prev_ens_correction_data():
 
     # pull out the fields:
     for field in ff_file_in.fields:
-        # is this SMC or land sea mask?
         if field.lbuser4 in STASH_TO_LOAD:
             if field.lbuser4 in MULTI_LEVEL_STASH:
                 # multi-level fields are a dict, with a list for each level
@@ -175,28 +150,6 @@ def load_prev_ens_correction_data():
                 corr_data_in[field.lbuser4] = field
 
     return corr_data_in
-
-
-def load_correction():
-
-    """
-    Load correction data
-    :return: bpert_scaled
-    :return  landsea_field
-    """
-
-    # load in the breeding perturbation file, for this member, from the last cycle
-    # includes the land-sea mask
-    corr_fields, ff_file_in = load_prev_ens_correction_data()
-    landsea_field = corr_fields[STASH_LAND_SEA_MASK]
-
-    corr_scaled = {stash: {} for stash in STASH_TO_MAKE_PERTS}
-    for stash in STASH_TO_MAKE_PERTS:
-        for level in corr_fields[stash].keys():
-            corr_l = corr_fields[stash][level]
-
-    return corr_scaled, landsea_field
-
 
 # load and process EKF functions
 
@@ -268,10 +221,10 @@ def load_soil_EFK_data(stash_and_constraints, cache=False):
 def load_ekf_combine_with_correction(corr_data):
 
     """
-    Load in EFK soil perturbations and combine with the already scaled breeding perturbations
+    Load in EFK soil perturbations and take away the correction needed to centre the overall ensemble mean for this
+    cycle
 
-    :return: soil_comb_pert: (dictionary) combined perturbations of the EKF and breeding scheme
-    :return: bpert_landsea_field (field) land sea mask from the breeding perturbations file
+    :return: soil_centred_pert: (dictionary) combined perturbations of the EKF and correction
     """
 
     # STASH codes to load in from the analysis dump:
@@ -284,10 +237,7 @@ def load_ekf_combine_with_correction(corr_data):
     # load in the EKF and other
     soil_fields, smc_ff = load_soil_EFK_data(stash_from_dump, cache=True)
 
-    # Combined perturbation from breeding method (bpert) with the EKF perturbation, for each soil level (original).
-    #adder = mule.operators.AddFieldsOperator(preserve_mdi=True)
-
-    # reduce EKF by the bpert perturbation (now that EKF is done via IAU).
+    # reduce EKF by the correction (now that EKF is done via IAU).
     subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
 
     soil_centred_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
@@ -307,34 +257,18 @@ def load_ekf_combine_with_correction(corr_data):
 def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 
     """
-    Save the total perturbation ready for the IAU to ingest. Use the EKF file as a template, if present,
+    Save the total perturbation ready for the IAU to ingest. Use the EKF file as a template,
     as this is already intended for the IAU and to help future-proof the process as the file may
     include more information in the future.
 
-    :param soil_pert: (dictionary) total soil perturbation
-    :param landsea_field: (field) land sea mask from the breeding perturbation file
-    :return:
+    :param centred_pert: (dictionary) EKF - correction. The increment to apply, to center the ensemble mean
     """
 
-    def ensure_fields_file():
-        # Set the dataset_type to 3 (fields file) encase the file type isn't already
-        pert_ff_out.fixed_length_header.dataset_type = 3
-        return
-
-    def ensure_ancil_file(pert_ff_out):
-        # If file is an ancillary (dataset_type = 4) and has level_dependent_constants as a header...
-        # Remove the level_dependent_constants fixed header, as it should not exist in an ancillary file and
-        # mule will not save file with it in.
-        if (pert_ff_out.fixed_length_header.dataset_type == 4) & hasattr(pert_ff_out, 'level_dependent_constants'):
-            pert_ff_out.level_dependent_constants = None
-        return
-
     # Ideally use the existing EKF file as a template
-    output_pert_file = ENS_SOIL_EKF_FILEPATH
-    tmp_output_pert_file = output_pert_file + '_tmp.ff'
-    # pert_ff_in = mule.AncilFile.from_file(output_pert_file, remove_empty_lookups=True)
-    pert_ff_in = mule.AncilFile.from_file(output_pert_file)
+    pert_ff_in = mule.AncilFile.from_file(ENS_SOIL_EKF_FILEPATH)
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
+    # name the output file for EKF - correction
+    output_pert_file = ROSE_DATAC + '/engl_smc/engl_surf_inc_correction'
 
     os.system('echo file being saved using '+output_pert_file+' as a template')
 
@@ -375,32 +309,29 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 
     # overide validate function to keep the level dependent constants in the ancillary file and save
     # pert_ff_out.validate = validate_overide
-    pert_ff_out.to_file(tmp_output_pert_file)
-
-    # if we are done, and this id being run 'for real'
-    # then we want to overwrite the real pert file with the temporary one:
-    if OVERWRITE_PERT_FILES:
-        shutil.move(tmp_output_pert_file, output_pert_file)
+    pert_ff_out.to_file(output_pert_file)
 
     return
 
 
 if __name__ == '__main__':
 
-    # load the breeding perturbation data, EFK data and combine them.
-    # Also load the land-sea mask for saving the data later.
-    # soil_comb_pert, bpert_landsea_field = load_combine_ekf_bpert()
+    """
+    Routine 2 of 2 for applying the the ensemble soil moisture content (SMC) and soil temperature (TSOIL) correction
+    to the EKF perturbation.
+    """
 
-    # load and scale the breeding perturbation data based on the TUNING_FACTOR_INT value
+    ## Read and process
+    # load the ensemble correction data (ensemble mean - control field, both from previous cycle).
     corr_data = load_prev_ens_correction_data()
 
-    # if the EKF file exists, read it in and combine with the scaled breeding perturbation, to create a total.
-    # Else take the breeding perturbation data alone as the 'total'.
+    # if the EKF file exists, read it in and combine with the ensemble correction.
     if os.path.exists(ENS_SOIL_EKF_FILEPATH):
         total_pert = load_ekf_combine_with_correction(corr_data)
     else:
         raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
 
+    ## Save
     # save total perturbations in the original perturbation file
     save_total_pert(total_pert)
 
