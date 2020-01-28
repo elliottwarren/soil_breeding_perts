@@ -1,9 +1,10 @@
 #!/usr/bin/env/python
 
 """
-Load in breeding perturbations, calculated from and valid for t+3 in the previous cycle. Then,
-and add them to EKF perturbations of current cycle. The combined output should be valid for t-3 for this cycle.
-Scientific checks are assumed to be carried out by IAU.
+Load in ensemble correction (ensemble mean - control), calculated from and valid for t+3 in the previous cycle. Then,
+take it away from the EKF analysis of current cycle. The combined output should be valid for t-3 for this cycle.
+Scientific checks are assumed to be carried out by IAU. This file is then to be used by all members, effectively
+centering the ensembles around the control.
 
 Created by Elliott Warren Thurs 21th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -54,12 +55,11 @@ if ROSE_DATACPT6H is None:
     ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'
     ENS_MEMBER = '1'
-    ENS_SOIL_BPERT_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
-                   'engl_smc/engl_smc_bpert/engl_smc_bpert_{0:03d}'.format(int(ENS_MEMBER))
-    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_um/'\
-                            'engl_um_{0:03d}/engl_surf_inc'.format(int(ENS_MEMBER))  # Breo's change
-    #ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
-    #                         'engl_smc_p{0:04d}'.format(int(ENS_MEMBER))  # before Breo's change
+    ENS_SOIL_CORR_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
+                   'engl_smc/engl_soil_correction'
+    ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
+                            'engl_surf_inc'  # control member
+
     TUNING_FACTOR = '1'
     OVERWRITE_PERT_FILES = False
 
@@ -133,7 +133,7 @@ class CachingOperator(mule.DataOperator):
 # load and process breeding functions
 
 
-def load_prev_ens_bpert_data():
+def load_prev_ens_correction_data():
 
     """
     Loads in previous cycle ensemble breeding perturbation data. Sorted into a dict structure by field, level to
@@ -149,15 +149,15 @@ def load_prev_ens_bpert_data():
     # for member in MEMBERS_PERT_INTS:
 
     # set up the returned data structure...
-    bpert_data_in = {}
+    corr_data_in = {}
     for stash in STASH_TO_LOAD:
         if stash in MULTI_LEVEL_STASH:
-            bpert_data_in[stash] = {}
+            corr_data_in[stash] = {}
         else:
-            bpert_data_in[stash] = []
+            corr_data_in[stash] = []
 
     # data file to open:
-    ff_file_in = mule.load_umfile(ENS_SOIL_BPERT_FILEPATH)
+    ff_file_in = mule.load_umfile(ENS_SOIL_CORR_FILEPATH)
     ff_file_in.remove_empty_lookups()
 
     # pull out the fields:
@@ -166,41 +166,36 @@ def load_prev_ens_bpert_data():
         if field.lbuser4 in STASH_TO_LOAD:
             if field.lbuser4 in MULTI_LEVEL_STASH:
                 # multi-level fields are a dict, with a list for each level
-                if field.lblev in bpert_data_in[field.lbuser4].keys():
-                    bpert_data_in[field.lbuser4][field.lblev] = field
+                if field.lblev in corr_data_in[field.lbuser4].keys():
+                    corr_data_in[field.lbuser4][field.lblev] = field
                 else:
-                    bpert_data_in[field.lbuser4][field.lblev] = field
+                    corr_data_in[field.lbuser4][field.lblev] = field
             else:
                 # single level fields are a flat list:
-                bpert_data_in[field.lbuser4] = field
+                corr_data_in[field.lbuser4] = field
 
-    return bpert_data_in, ff_file_in
+    return corr_data_in
 
 
-def load_scale_bpert():
+def load_correction():
 
     """
-    Load and scale the breeding perturbations
+    Load correction data
     :return: bpert_scaled
     :return  landsea_field
     """
 
     # load in the breeding perturbation file, for this member, from the last cycle
     # includes the land-sea mask
-    bpert_fields, ff_file_in = load_prev_ens_bpert_data()
-    landsea_field = bpert_fields[STASH_LAND_SEA_MASK]
+    corr_fields, ff_file_in = load_prev_ens_correction_data()
+    landsea_field = corr_fields[STASH_LAND_SEA_MASK]
 
-    # Combined perturbation from breeding method (bpert) with the EKF perturbation, for each soil level.
-    # Use TUNING_FACTOR to scale the amount of bpert to add (scaling applied equally to all levels).
-    tuning_factor_scaling = mule.operators.ScaleFactorOperator(TUNING_FACTOR_FLOAT)
-
-    bpert_scaled = {stash: {} for stash in STASH_TO_MAKE_PERTS}
+    corr_scaled = {stash: {} for stash in STASH_TO_MAKE_PERTS}
     for stash in STASH_TO_MAKE_PERTS:
-        for level in bpert_fields[stash].keys():
-            bpert_l = bpert_fields[stash][level]
-            bpert_scaled[stash][level] = tuning_factor_scaling(bpert_l)
+        for level in corr_fields[stash].keys():
+            corr_l = corr_fields[stash][level]
 
-    return bpert_scaled, landsea_field
+    return corr_scaled, landsea_field
 
 
 # load and process EKF functions
@@ -270,7 +265,7 @@ def load_soil_EFK_data(stash_and_constraints, cache=False):
     return ff_data, ff_obj
 
 
-def load_ekf_combine_with_bpert(bpert_scaled):
+def load_ekf_combine_with_correction(corr_data):
 
     """
     Load in EFK soil perturbations and combine with the already scaled breeding perturbations
@@ -295,25 +290,28 @@ def load_ekf_combine_with_bpert(bpert_scaled):
     # reduce EKF by the bpert perturbation (now that EKF is done via IAU).
     subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
 
-    soil_total_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
+    soil_centred_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
     for stash in STASH_TO_MAKE_PERTS:
-        for level, bpert_l in bpert_scaled[stash].items():
+        for level, corr_l in corr_data[stash].items():
             ekf_pert_l = soil_fields[stash][level]
-            soil_total_pert[stash][level] = subber([ekf_pert_l, bpert_l])
+            soil_centred_pert[stash][level] = subber([ekf_pert_l, corr_l])
 
-    return soil_total_pert
+    # put land-sea mask in the soil_centred_pert dictionary
+    soil_centred_pert[STASH_LAND_SEA_MASK] = corr_data[STASH_LAND_SEA_MASK]
+
+    return soil_centred_pert
 
 # save
 
 
-def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPATH):
+def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 
     """
     Save the total perturbation ready for the IAU to ingest. Use the EKF file as a template, if present,
     as this is already intended for the IAU and to help future-proof the process as the file may
     include more information in the future.
 
-    :param soil_pert: (dictionary) total soil perturabtion
+    :param soil_pert: (dictionary) total soil perturbation
     :param landsea_field: (field) land sea mask from the breeding perturbation file
     :return:
     """
@@ -363,17 +361,17 @@ def save_total_pert(soil_pert, landsea_field, template_file=ENS_SOIL_EKF_FILEPAT
     # add land-sea mask if not present already
     if not out_pert_has_lsm:
         # add it:
-        pert_ff_out.fields.append(landsea_field)
+        pert_ff_out.fields.append(centred_pert[STASH_LAND_SEA_MASK])
 
     # Now add in the perturbations:
     # Correct times to ensure validity time matches
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
             # write out each level (the order now matters!):
-            for level in sorted(soil_pert[stash]):
-                pert_ff_out.fields.append(soil_pert[stash][level])
+            for level in sorted(centred_pert[stash]):
+                pert_ff_out.fields.append(centred_pert[stash][level])
         else:
-            pert_ff_out.fields.append(soil_pert[stash])
+            pert_ff_out.fields.append(centred_pert[stash])
 
     # overide validate function to keep the level dependent constants in the ancillary file and save
     # pert_ff_out.validate = validate_overide
@@ -394,17 +392,17 @@ if __name__ == '__main__':
     # soil_comb_pert, bpert_landsea_field = load_combine_ekf_bpert()
 
     # load and scale the breeding perturbation data based on the TUNING_FACTOR_INT value
-    bpert_scaled, bpert_landsea_field = load_scale_bpert()
+    corr_data = load_prev_ens_correction_data()
 
     # if the EKF file exists, read it in and combine with the scaled breeding perturbation, to create a total.
     # Else take the breeding perturbation data alone as the 'total'.
     if os.path.exists(ENS_SOIL_EKF_FILEPATH):
-        total_pert = load_ekf_combine_with_bpert(bpert_scaled)
+        total_pert = load_ekf_combine_with_correction(corr_data)
     else:
         raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
 
     # save total perturbations in the original perturbation file
-    save_total_pert(total_pert, bpert_landsea_field)
+    save_total_pert(total_pert)
 
     exit(0)
 
