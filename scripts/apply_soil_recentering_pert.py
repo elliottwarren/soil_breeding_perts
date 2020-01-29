@@ -1,4 +1,4 @@
-#!/usr/bin/env/python
+#!/usr/bin/env python
 
 """
 Load in ensemble correction (ensemble mean - control), calculated from and valid for t+3 in the previous cycle. Then,
