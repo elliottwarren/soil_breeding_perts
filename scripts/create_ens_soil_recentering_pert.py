@@ -68,20 +68,21 @@ MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
 # Configuration:
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
-STASH_TSOIL = 20
 STASH_SMC = 9
 STASH_LANDFRAC = 216
+STASH_SNOW_AMNT = 23
 # pseudo level for land-ice mask
 PSEUDO_LEVEL_LANDICE = 9
 
+
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_LANDFRAC]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_AMNT, STASH_LANDFRAC]
 
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_LANDFRAC]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+STASH_TO_MAKE_PERTS = [STASH_SMC]
 
 # constraints on which fields to load in for a STASH variable
 STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
@@ -347,35 +348,54 @@ def mean_minus_control(control_data, mean_data):
     return corrction_data
 
 
-def zero_land_ice_perts(corr_data):
+def zero_land_ice_snow_perts(corr_data, ens, ctrl):
 
     """
-    The mule subtraction can introduce small non-zero values over ice where values were very close. This sets
+    Set perturbations to be 0.0 over ice or where snow was present (>0.05 kg m-2) in any of the members, including the
+    control. The mule subtraction can introduce small non-zero values over ice where values were very close. This sets
     the perturbations to be 0.0 over ice, regardless.
     :param corr_data: ensemble mean - control, correction data.
+    :param ens: ensemble data (contains the snow fields from all members except the control)
+    :param ctrl: control ensemble member (contains control member's snow field)
     :return corr_data
+    :return ice_snow_mask: mask defining whether ice, or snow (>0.05 kg m-2), is present on any grid cell
     """
 
+    # 1. Get land-ice mask
     # load in the land-ice mask
     landice_data = corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].get_data()
-
     # create land-ice mask
     landice_mask = np.logical_and(landice_data == 1.0,
                                   landice_data != corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].bmdi)
 
+    # 2. Get snow mask (snow from any member is > 0.05 kg m-2)
+    # append two lists of snow fields (all members and control member)
+    snow_fields = ens[STASH_SNOW_AMNT] + ctrl[STASH_SNOW_AMNT]
+    # Create a list of booleon arrays (one for each member), where the field has more than 0.05 kg m-2 snow and does
+    # not have the 'missing data' number.
+    snow_masks = [np.logical_and(snow_field_i.get_data() > 0.05, snow_field_i.get_data() != snow_field_i.bmdi) for snow_field_i in snow_fields]
+    # stack the arrays together along a third dimension to enable the next step
+    stacked_snow_masks = np.stack(snow_masks, axis=2)
+    # Create a 2d booleon array showing whether any of the ensemble members had more than 0.05 snow
+    comb_snow_mask = np.any(stacked_snow_masks, axis=2)
+
+    # 3. combine land-ice and snow mask into one (True if permafrost, or enough snow from any member, is present)
+    ice_snow_mask = np.logical_or(landice_mask, comb_snow_mask)
+
+    # 4. set perturbations to 0.0 where ice or enough snow is present
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
             for level in corr_data[stash]:
 
                 # extract data and set values to 0.0 where there is ice
                 tmp_pert_data = corr_data[stash][level].get_data()
-                tmp_pert_data[landice_mask] = 0.0
+                tmp_pert_data[ice_snow_mask] = 0.0
 
                 # now put that data back into the corr_data field:
                 array_provider = mule.ArrayDataProvider(tmp_pert_data)
                 corr_data[stash][level].set_data_provider(array_provider)
 
-    return corr_data
+    return corr_data, ice_snow_mask
 
 # saving functions
 
@@ -452,8 +472,8 @@ if __name__ == '__main__':
     # create the soil recentering correction (ensemble mean - control).
     ens_correction = mean_minus_control(ctrl_data, ens_mean)
 
-    # set pert values of SMC and TSOIL to 0 where ice is present on land
-    ens_correction = zero_land_ice_perts(ens_correction)
+    # set pert values of SMC to 0 where ice or snow is present on land, in any member (including control)
+    ens_correction, ice_snow_mask = zero_land_ice_snow_perts(ens_correction, ens_data, ctrl_data)
 
     ## Save
     # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
