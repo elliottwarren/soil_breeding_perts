@@ -37,8 +37,7 @@ NUM_PERT_MEMBERS = os.getenv('NUM_PERT_MEMBERS')
 # cycle directory
 ROSE_DATAC = os.getenv('ROSE_DATAC')
 
-# directory the ensemble perturbation files will be saved in
-# named [engl_smc_bpert] to differentiate the perturbations as being produced from the breeding method
+# directory the correction file will be saved in
 ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 
 # filename of dump with soil variables in that will be used for members (not the full filepath)
@@ -53,9 +52,8 @@ if NUM_PERT_MEMBERS is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
-    ENS_PERT_DIR = ROSE_DATAC + '/engl_smc/engl_smc_bpert'
-    ENS_SOIL_DUMP_FILE = 'englaa_da003'  # Breo's change
-    # ENS_SOIL_DUMP_FILE = 'englaa_da006'  # before Breo's change
+    ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
+    ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
 
 # control member number (can be 0 or 000)
@@ -395,11 +393,11 @@ def save_fields_file(data, in_files, filename):
     """
 
     # Ensure smc directory exists to save into
-    if os.path.isdir(ROSE_DATAC + '/engl_smc') is False:
+    if os.path.isdir(ENS_PERT_DIR) is False:
         # use mkdir -p (recursive dir creation) as equivalent pythonic functions vary between Python2 and Python3
-        os.system('mkdir -p '+ROSE_DATAC + '/engl_smc')
+        os.system('mkdir -p '+ENS_PERT_DIR)
 
-    ens_filepath = ROSE_DATAC + '/engl_smc/'+filename
+    ens_filepath = ENS_PERT_DIR+'/'+filename
     # open a FieldFile object:
     ens_ff = in_files[0].copy(include_fields=False)
 
