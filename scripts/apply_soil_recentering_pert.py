@@ -4,7 +4,7 @@
 Load in ensemble correction (ensemble mean - control), calculated from and valid for t+3 in the previous cycle. Then,
 take it away from the EKF analysis of current cycle. The combined output should be valid for t-3 for this cycle.
 Scientific checks are assumed to be carried out by IAU. This file is then to be used by all members, effectively
-centering the ensembles around the control.
+centering the ensemble members around the control.
 
 Created by Elliott Warren Thurs 21th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -16,12 +16,12 @@ mule 2019.01.1
 numpy 1.16.5 (python2)
 numpy 1.17.3 (python3)
 
-Testing (including soil temperature) carried out in:
+Testing carried out in:
 /data/users/ewarren/R2O_projects/soil_moisture_pertubation/
 """
 
 import os
-import shutil
+import numpy as np
 
 import mule
 import mule.operators
@@ -56,17 +56,19 @@ if ROSE_DATACPT6H is None:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
 STASH_TSOIL = 20
+STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
+STASH_SNOW_ANY_LAYER = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # land use fractions:
 STASH_LANDFRAC = 216
 # pseudo level of land ice tile (this should remain unchanged at 9!)
 PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_ANY_LAYER]
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+MULTI_LEVEL_STASH = [STASH_SMC]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+STASH_TO_MAKE_PERTS = [STASH_SMC]
 
 # ------------------------------------
 
@@ -154,18 +156,16 @@ def load_prev_ens_correction_data():
 # load and process EKF functions
 
 
-def load_soil_EFK_data(stash_and_constraints, cache=False):
+def load_field_data(stash_and_constraints, ff_file, cache=False):
     """
     Loads EKF soil data
 
     :param stash_and_constraints: (dictionary) stash codes and additional constraints to load
+    :param: ff_file: (filepath str) filepath of the data to load
     :param cache: (bool) To use mule cache functionality to assist loading
     :return: ff_data: (dictionary) soil data fields from current cycle
     :return: ff_obj: (object) the UM file read in
     """
-
-    # identify file with existing EKF perturbation
-    ff_file = ENS_SOIL_EKF_FILEPATH
 
     if isinstance(ff_file, str):
         ff_obj = mule.load_umfile(ff_file)
@@ -235,7 +235,7 @@ def load_ekf_combine_with_correction(corr_data):
                        STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}}
 
     # load in the EKF and other
-    soil_fields, smc_ff = load_soil_EFK_data(stash_from_dump, cache=True)
+    soil_fields, smc_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
 
     # reduce EKF by the correction (now that EKF is done via IAU).
     subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
@@ -251,6 +251,62 @@ def load_ekf_combine_with_correction(corr_data):
 
     return soil_centred_pert
 
+def load_combine_snow_fields():
+
+    stash_from_dump = {STASH_SNOW_ANY_LAYER: None}
+
+    # load in the EKF and other
+    snow_fields, snow_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
+
+
+
+
+    return
+
+def zero_snow_cell_perts(corr_data, total_pert):
+
+    """
+    Set the perturbations for any grid cells with snow on them (defined from the snow field of the correction file)
+     to 0.0
+    :param corr_data: (dictionary) contains the snow field
+    :param total_pert: (EKF - correction) perturbations that need to be set to 0.0 where snow is present.
+    :return:
+    """
+
+    def apply_mask(field, mask):
+
+        """
+        apply the mask to the data
+        :param field: (field) field to partially mask
+        :param mask: (numpy array with boolean values, same shape as field.get_data()) True for where to mask
+        :return:
+        """
+
+        # extract data and set values to 0.0 where there is ice
+        tmp_pert_data = field.get_data()
+        tmp_pert_data[mask] = 0.0
+
+        # now put that data back into the corr_data field:
+        array_provider = mule.ArrayDataProvider(tmp_pert_data)
+        field.set_data_provider(array_provider)
+
+        return field
+
+    # extract out snow mask
+    snow_field =  corr_data[STASH_SNOW_ANY_LAYER]
+    snow_data = snow_field.get_data()
+    snow_mask = np.logical_and(snow_data == 1.0, snow_data != snow_field.bmdi)
+
+    # zero any perturbations over tiles that 
+    for stash in STASH_TO_MAKE_PERTS:
+        if stash in MULTI_LEVEL_STASH:
+            for level in total_pert[stash]:
+                total_pert[stash][level] = apply_mask(total_pert[stash][level], snow_mask)
+        else:
+            total_pert[stash] = apply_mask(total_pert[stash], snow_mask)
+
+    return total_pert
+
 # save
 
 
@@ -265,7 +321,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     """
 
     # Ideally use the existing EKF file as a template
-    pert_ff_in = mule.AncilFile.from_file(ENS_SOIL_EKF_FILEPATH)
+    pert_ff_in = mule.AncilFile.from_file(template_file)
     pert_ff_out = pert_ff_in.copy(include_fields=False)  # empty copy
     # name the output file for EKF - correction
     output_pert_file = ROSE_DATAC + '/engl_smc/engl_surf_inc_correction'
@@ -311,14 +367,15 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # pert_ff_out.validate = validate_overide
     pert_ff_out.to_file(output_pert_file)
 
+    print('saved: ' + output_pert_file)
+
     return
 
 
 if __name__ == '__main__':
 
     """
-    Routine 2 of 2 for applying the the ensemble soil moisture content (SMC) and soil temperature (TSOIL) correction
-    to the EKF perturbation.
+    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) correction, to the EKF perturbation.
     """
 
     ## Read and process
@@ -330,6 +387,9 @@ if __name__ == '__main__':
         total_pert = load_ekf_combine_with_correction(corr_data)
     else:
         raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
+
+    # apply snow field masking to the combined perturbations (0.0 all tiles with snow on them)
+    total_pert = zero_snow_cell_perts(corr_data, total_pert)
 
     ## Save
     # save total perturbations in the original perturbation file
