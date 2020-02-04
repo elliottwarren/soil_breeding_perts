@@ -8,9 +8,8 @@ the current cycle. Output then gets used next cycle, and is valid for t-3.
 
 This script is doing the recentering step of the 'breeding method'.
 
-A boolean of the combined snow field is needed for the next cycle, to be used along with the snow field for that cycle,
- in order to determine where the EKF IAU increments need to be set to 0. If this cycle's snow isn't used, grid cells
- with snow this cycle, but free of snow the next cycle, will have the EKF but no centering correction.
+A boolean of the combined snow field is needed for the next cycle,  in order to determine where the EKF IAU increments
+ need to be set to 0.
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -370,6 +369,25 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
         for any member
     """
 
+    def apply_mask(field, mask):
+
+        """
+        apply the mask to the data
+        :param field: (field) field to partially mask
+        :param mask: (numpy array with boolean values, same shape as field.get_data()) True for where to mask
+        :return:
+        """
+
+        # extract data and set values to 0.0 where there is ice
+        tmp_pert_data = field.get_data()
+        tmp_pert_data[mask] = 0.0
+
+        # now put that data back into the corr_data field:
+        array_provider = mule.ArrayDataProvider(tmp_pert_data)
+        field.set_data_provider(array_provider)
+
+        return field
+
     # 1. Get land-ice mask
     # load in the land-ice mask
     landice_data = corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].get_data()
@@ -395,14 +413,9 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
             for level in corr_data[stash]:
-
-                # extract data and set values to 0.0 where there is ice
-                tmp_pert_data = corr_data[stash][level].get_data()
-                tmp_pert_data[ice_snow_mask] = 0.0
-
-                # now put that data back into the corr_data field:
-                array_provider = mule.ArrayDataProvider(tmp_pert_data)
-                corr_data[stash][level].set_data_provider(array_provider)
+                corr_data[stash][level] = apply_mask(corr_data[stash][level], ice_snow_mask)
+        else:
+            corr_data[stash] = apply_mask(corr_data[stash], ice_snow_mask)
 
     # 5. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field,
     #     replacing the data, and then adding the field to the correction dictionary
