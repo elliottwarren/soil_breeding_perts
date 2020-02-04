@@ -55,7 +55,6 @@ if ROSE_DATACPT6H is None:
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
-STASH_TSOIL = 20
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
 STASH_SNOW_ANY_LAYER = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # land use fractions:
@@ -230,7 +229,6 @@ def load_ekf_combine_with_correction(corr_data):
     # STASH codes to load in from the analysis dump:
     # stash codes as dict key, then a dict of constraints, if any:
     stash_from_dump = {STASH_SMC: None,
-                       STASH_TSOIL: None,
                        STASH_LAND_SEA_MASK: None,
                        STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}}
 
@@ -326,7 +324,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # name the output file for EKF - correction
     output_pert_file = ROSE_DATAC + '/engl_smc/engl_surf_inc_correction'
 
-    os.system('echo file being saved using '+output_pert_file+' as a template')
+    os.system('echo file being saved using '+template_file+' as a template')
 
     # now go through the fields in the pert_ff_in and as long as they are not duplicates
     # of the fields in the this_perts object, add them to pert_ff_out.
