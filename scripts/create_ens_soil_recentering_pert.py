@@ -3,10 +3,14 @@
 """
 Calculate the correction (perturbation) needed to recenter the mean of the ensemble, toward the ensemble control member.
 I.e. ensemble mean = 28, and control member = 32, then recentering correction to apply on all members on the next
-cycle is +4. Corrections applied to soil moisture content (SMC) and soil temperature (TSOIL). Data used is for t+3 of
+cycle is +4. Corrections applied to soil moisture content (SMC). Data used is for t+3 of
 the current cycle. Output then gets used next cycle, and is valid for t-3.
 
 This script is doing the recentering step of the 'breeding method'.
+
+A boolean of the combined snow field is needed for the next cycle, to be used along with the snow field for that cycle,
+ in order to determine where the EKF IAU increments need to be set to 0. If this cycle's snow isn't used, grid cells
+ with snow this cycle, but free of snow the next cycle, will have the EKF but no centering correction.
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
 Based on engl_ens_smc_pert.py by Malcolm Brooks 18th Sept 2016: Malcolm.E.Brooks@metoffice.gov.uk
@@ -70,13 +74,14 @@ MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
 STASH_LANDFRAC = 216
-STASH_SNOW_AMNT = 23
+STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
+STASH_SNOW_ANY_LAYER = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # pseudo level for land-ice mask
 PSEUDO_LEVEL_LANDICE = 9
 
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_AMNT, STASH_LANDFRAC]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_ANY_LAYER, STASH_LANDFRAC]
 
 # these need to be all multi-level (not pseudo level) stash codes
 MULTI_LEVEL_STASH = [STASH_SMC, STASH_LANDFRAC]
@@ -345,6 +350,9 @@ def mean_minus_control(control_data, mean_data):
     # add the land use as well (taken the items out of a single element list
     corrction_data[STASH_LANDFRAC] = {key: item[0] for key, item in control_data[STASH_LANDFRAC].items()}
 
+    # add the snow cover from the control as well.
+    # Intended only to be used as a field's file template for storing the combined ensemble snow field boolean later
+
     return corrction_data
 
 
@@ -358,7 +366,8 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
     :param ens: ensemble data (contains the snow fields from all members except the control)
     :param ctrl: control ensemble member (contains control member's snow field)
     :return corr_data
-    :return ice_snow_mask: mask defining whether ice, or snow (>0.05 kg m-2), is present on any grid cell
+    :return comb_snow_field: snow field with a boolean defining whether snow (>0.05 kg m-2), is present on any grid cell
+        for any member
     """
 
     # 1. Get land-ice mask
@@ -370,7 +379,7 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
 
     # 2. Get snow mask (snow from any member is > 0.05 kg m-2)
     # append two lists of snow fields (all members and control member)
-    snow_fields = ens[STASH_SNOW_AMNT] + ctrl[STASH_SNOW_AMNT]
+    snow_fields = ens[STASH_SNOW_ANY_LAYER] + ctrl[STASH_SNOW_ANY_LAYER]
     # Create a list of booleon arrays (one for each member), where the field has more than 0.05 kg m-2 snow and does
     # not have the 'missing data' number.
     snow_masks = [np.logical_and(snow_field_i.get_data() > 0.05, snow_field_i.get_data() != snow_field_i.bmdi) for snow_field_i in snow_fields]
@@ -395,7 +404,14 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
                 array_provider = mule.ArrayDataProvider(tmp_pert_data)
                 corr_data[stash][level].set_data_provider(array_provider)
 
-    return corr_data, ice_snow_mask
+    # 5. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field,
+    #     replacing the data, and then adding the field to the correction dictionary
+    comb_snow_field = ctrl[STASH_SNOW_ANY_LAYER][0]
+    snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
+    comb_snow_field.set_data_provider(snow_array_provider)
+    corr_data[STASH_SNOW_ANY_LAYER] = comb_snow_field
+
+    return corr_data
 
 # saving functions
 
@@ -408,6 +424,7 @@ def save_fields_file(data, in_files, filename):
 
     :param data: (dictionary): fields needing to be saved
     :param in_files: (list): list of file files for all member's used in creating [data]. Used to create a template.
+    :param stash_list (list): list of stash numbers to save e.g. [9] for soil moisture
     :param filename (str): name of the file to save (not the full path)
     :return:
     """
@@ -422,24 +439,54 @@ def save_fields_file(data, in_files, filename):
     ens_ff = in_files[0].copy(include_fields=False)
 
     # add the fields:
-    for stash in STASH_TO_MAKE_PERTS:
+    for stash in data.keys():
         if stash in MULTI_LEVEL_STASH:
             for level in data[stash]:
                 ens_ff.fields.append(data[stash][level])
         else:
             ens_ff.fields.append(data[stash])
 
-    # add land sea mask 
-    ens_ff.fields.append(data[STASH_LAND_SEA_MASK])
-
-    # add land use masks
-    for field in data[STASH_LANDFRAC].values():
-        ens_ff.fields.append(field)
+    # # add land sea mask if it wasn't in the stash_list
+    # if STASH_LAND_SEA_MASK not in stash_list:
+    #     if STASH_LAND_SEA_MASK in data.keys():
+    #         ens_ff.fields.append(data[STASH_LAND_SEA_MASK])
+    #     else:
+    #         raise ValueError('land sea mask not present in data. It needs to be included in saved field files!')
 
     # save
     ens_ff.to_file(ens_filepath)
 
     print('saved: '+ens_filepath)
+
+    return
+
+def save_ice_snow_fields(comb_snow_mask, corr_data, ctrl_file):
+
+
+    # replace data in the control field with the combined snow boolean field (snow > 0.05 = True for any member),
+    #   so it can be saved and used for the next cycle
+    comb_snow_field = corr_data[STASH_SNOW_ANY_LAYER]
+    snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
+    comb_snow_field.set_data_provider(snow_array_provider)
+
+    # snow field in a dictionary and filename, ready for save_fields_file() function
+    snow_ice_field_dict = {STASH_SNOW_ANY_LAYER: [comb_snow_field]}
+    # add any land-use fields (including ice)
+    snow_ice_field_dict.update({STASH_LANDFRAC: corr_data[STASH_LANDFRAC]})
+    #{stash: field_i[0] for (stash, field_i) in ctrl_data[STASH_LANDFRAC].items()}
+    # add land-sea mask, as it is needed for any saved fields file
+    snow_ice_field_dict.update({STASH_LAND_SEA_MASK: corr_data[STASH_LAND_SEA_MASK]})
+
+    filename = 'engl_snow_ice_masks'
+    stash_list = snow_ice_field_dict.keys()
+
+    # restructure the dictionary, so the fields are not in single element lists. This is needed for the
+    # save_fields_file() to work properly
+    snow_ice_field_dict
+
+    # save the snow fields file.
+    # It will save the ice fields file too
+    save_fields_file(snow_ice_field_dict, ctrl_file, stash_list, filename)
 
     return
 
@@ -459,10 +506,10 @@ if __name__ == '__main__':
     """
 
     ## Read
-    # load the SMC, TSOIL and other input data for all members:
+    # load the SMC and other input data for all members:
     ens_data, ens_ff_files = load_engl_member_data(MEMBERS_PERT_INTS)
 
-    # load the SMC, TSOIL and other input data for the control member only:
+    # load the SMC and other input data for the control member only:
     ctrl_data, ctrl_ff_files = load_engl_member_data(CONTROL_MEMBER)
 
     ## Process
@@ -473,13 +520,16 @@ if __name__ == '__main__':
     ens_correction = mean_minus_control(ctrl_data, ens_mean)
 
     # set pert values of SMC to 0 where ice or snow is present on land, in any member (including control)
-    ens_correction, ice_snow_mask = zero_land_ice_snow_perts(ens_correction, ens_data, ctrl_data)
+    # the snow field used is appended to the ens_correction dictionary for use in the next cycle.
+    ens_correction = zero_land_ice_snow_perts(ens_correction, ens_data, ctrl_data)
 
     ## Save
     # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
+    # includes the composite boolean snow field map produced in zero_land_ice_snow_perts()
     save_fields_file(ens_mean, ens_ff_files, 'engl_soil_mean')
 
     # save the correction
+    # use the control ensemble file as a file template for saving
     save_fields_file(ens_correction, ctrl_ff_files, 'engl_soil_correction')
 
     exit(0)
