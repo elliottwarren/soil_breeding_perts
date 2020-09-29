@@ -186,7 +186,7 @@ def load_engl_member_data(member_list):
     field.lbuser5 = pseudo level (land surface tiles will have these)
     """
 
-    # ensure member_list is actually an iterable, if not already.
+    # ensure member_list is actually an iterable list of strings, if not already.
     if isinstance(member_list, (float, int, str)):
         member_list = [member_list]
 
