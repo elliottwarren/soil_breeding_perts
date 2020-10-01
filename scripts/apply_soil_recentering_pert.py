@@ -47,7 +47,7 @@ if ROSE_DATACPT6H is None:
     ENS_SOIL_CORR_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z/' \
                    'engl_smc/engl_soil_correction'
     ENS_SOIL_EKF_FILEPATH = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z/engl_smc/' \
-                            'engl_surf_inc'  # control member
+                            'engl_surf_inc' # control member
 
 # ------------------------------------
 
