@@ -56,14 +56,14 @@ if ROSE_DATACPT6H is None:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
-STASH_SNOW_ANY_LAYER = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
+STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # land use fractions:
 STASH_LANDFRAC = 216
 # pseudo level of land ice tile (this should remain unchanged at 9!)
 PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_ANY_LAYER]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS]
 # these need to be all multi-level (not pseudo level) stash codes
 MULTI_LEVEL_STASH = [STASH_SMC]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
@@ -251,13 +251,10 @@ def load_ekf_combine_with_correction(corr_data):
 
 def load_combine_snow_fields():
 
-    stash_from_dump = {STASH_SNOW_ANY_LAYER: None}
+    stash_from_dump = {STASH_NUM_SNOW_LAYERS: None}
 
     # load in the EKF and other
     snow_fields, snow_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
-
-
-
 
     return
 
@@ -291,7 +288,7 @@ def zero_snow_cell_perts(corr_data, total_pert):
         return field
 
     # extract out snow mask
-    snow_field =  corr_data[STASH_SNOW_ANY_LAYER]
+    snow_field =  corr_data[STASH_NUM_SNOW_LAYERS]
     snow_data = snow_field.get_data()
     snow_mask = np.logical_and(snow_data == 1.0, snow_data != snow_field.bmdi)
 
