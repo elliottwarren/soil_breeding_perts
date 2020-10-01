@@ -55,7 +55,7 @@ if NUM_PERT_MEMBERS is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
     #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20200102T0000Z'
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
@@ -465,7 +465,9 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
             corr_data[stash] = apply_mask(corr_data[stash], ice_snow_mask)
 
     # 6. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field on
-    # the first pseudo level, replacing the data, and then adding the field to the correction dictionary
+    # the first pseudo level, replacing the data, and then adding the field to the correction dictionary.
+    # Will work whether the control uses the 9 tile pseudo-levels or a single aggregate pseudo-level (where the single
+    # level = 1)
     comb_snow_field = ctrl[STASH_NUM_SNOW_LAYERS][1][0]
     snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
     comb_snow_field.set_data_provider(snow_array_provider)
