@@ -54,7 +54,8 @@ if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
+    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20200102T0000Z'
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
@@ -74,16 +75,16 @@ STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
 STASH_LANDFRAC = 216
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
-STASH_SNOW_ANY_LAYER = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
+STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # pseudo level for land-ice mask
 PSEUDO_LEVEL_LANDICE = 9
 
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_SNOW_ANY_LAYER, STASH_LANDFRAC]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
 
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_LANDFRAC]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
 STASH_TO_MAKE_PERTS = [STASH_SMC]
@@ -212,11 +213,14 @@ def load_engl_member_data(member_list):
 
         # pull out the fields:
         for field in ff_file_in.fields:
-            # is this the SMC or TSOIL?
+            # is this a stash to load?
             if field.lbuser4 in STASH_TO_LOAD:
+
+                # 1. Multi level stash
                 if field.lbuser4 in MULTI_LEVEL_STASH:
 
-                    # 1. special instance for landfrac
+                    # 1.1 Special instance for land fraction as it involves pseudo-levels (lblev = 9999)
+                    # Each "level" is a separate land use tile
                     if field.lbuser4 == STASH_LANDFRAC:
                         if field.lbuser5 in STASH_LEVEL_CONSTRAINTS[STASH_LANDFRAC]:
                             # Read in landfrac pseudo-level...
@@ -225,15 +229,25 @@ def load_engl_member_data(member_list):
                             else:
                                 ens_data[field.lbuser4][field.lbuser5] = [field]
 
+                    # 1.2 Special instance for "snow on any layer" as it also involves pseudo-levels (lblev = 9999)
+                    # Each "level" is a separate land use tile
+                    elif field.lbuser4 == STASH_NUM_SNOW_LAYERS:
+                        # Read in pseudo-level...
+                        if field.lbuser5 in ens_data[field.lbuser4].keys():
+                            ens_data[field.lbuser4][field.lbuser5].append(field)
+                        else:
+                            ens_data[field.lbuser4][field.lbuser5] = [field]
+
+                    # 1.3 Read in multi-level stash on normal model levels...
                     else:
-                        # 2. Read in multi-level stash...
                         if field.lblev in ens_data[field.lbuser4].keys():
                             ens_data[field.lbuser4][field.lblev].append(field)
                         else:
                             ens_data[field.lbuser4][field.lblev] = [field]
 
+                # 2. Single level
                 else:
-                    # 3. single level fields are a flat list:
+                    # Single level fields are a flat list:
                     ens_data[field.lbuser4].append(field)
 
         # keep the fieldsfile objects for reference:
@@ -358,16 +372,53 @@ def mean_minus_control(control_data, mean_data):
 def zero_land_ice_snow_perts(corr_data, ens, ctrl):
 
     """
-    Set perturbations to be 0.0 over ice or where snow was present (>0.05 kg m-2) in any of the members, including the
+    Set perturbations to be 0.0 over ice or where snow was present on any layer, in any of the members, including the
     control. The mule subtraction can introduce small non-zero values over ice where values were very close. This sets
     the perturbations to be 0.0 over ice, regardless.
     :param corr_data: ensemble mean - control, correction data.
     :param ens: ensemble data (contains the snow fields from all members except the control)
     :param ctrl: control ensemble member (contains control member's snow field)
     :return corr_data
-    :return comb_snow_field: snow field with a boolean defining whether snow (>0.05 kg m-2), is present on any grid cell
+    :return comb_snow_field: snow field with a boolean defining whether snow, is present on any grid cell
         for any member
     """
+
+    def create_combined_snow_masks(snow_fields):
+
+        """
+        Create a single 2D bool array to show whether any ensemble member had any snow on any pseudo level.
+        Loop through each pseudo-level first and determine whether any snow was present across the ensemble members,
+        then combine together to see if any snow was present on any pseudo level.
+        :param snow_fileds: (dict): All snow fields across all the ensemble members
+        :return: comb_snow_mask: (bool array): Whether any ensemble member had any snow on any pseudo level
+
+        Pseudo-level is a land-surface tile type e.g. ice, urban, soil
+        """
+
+        # Define list to fill of 2D bool arrays
+        snow_masks = []
+
+        # Iterate over each pseudo-level to combine snow data across all ensemble members
+        for (level, snow_fields_level) in snow_fields.items():
+            # Turn snow field arrays (values: number of snow layers) into boolean arrays (values: >=one layers of
+            # snow = 1)
+            snow_masks_level = [np.logical_and(snow_field_i.get_data() >= 1,
+                                               snow_field_i.get_data() != snow_field_i.bmdi)
+                                for snow_field_i in snow_fields_level]
+
+            # Stack the arrays together along a third dimension to enable the next step
+            stacked_snow_masks = np.stack(snow_masks_level, axis=2)
+
+            # Create a list of  2d boolean arrays showing whether any of the ensemble members had snow on any layer, for
+            # each pseudo-level
+            snow_masks.append(np.any(stacked_snow_masks, axis=2))
+
+        # Combine the snow masks across the pseudo-levels to show whether there was snow, on any pseudo level, for any
+        # ensemble member
+        snow_mask_stack = np.stack(snow_masks, axis=2)
+        comb_snow_mask = np.any(snow_mask_stack, axis=2)
+
+        return comb_snow_mask
 
     def apply_mask(field, mask):
 
@@ -395,21 +446,17 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
     landice_mask = np.logical_and(landice_data == 1.0,
                                   landice_data != corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].bmdi)
 
-    # 2. Get snow mask (snow from any member is > 0.05 kg m-2)
-    # append two lists of snow fields (all members and control member)
-    snow_fields = ens[STASH_SNOW_ANY_LAYER] + ctrl[STASH_SNOW_ANY_LAYER]
-    # Create a list of booleon arrays (one for each member), where the field has more than 0.05 kg m-2 snow and does
-    # not have the 'missing data' number.
-    snow_masks = [np.logical_and(snow_field_i.get_data() > 0.05, snow_field_i.get_data() != snow_field_i.bmdi) for snow_field_i in snow_fields]
-    # stack the arrays together along a third dimension to enable the next step
-    stacked_snow_masks = np.stack(snow_masks, axis=2)
-    # Create a 2d booleon array showing whether any of the ensemble members had more than 0.05 snow
-    comb_snow_mask = np.any(stacked_snow_masks, axis=2)
+    # 2. combine ens and ctrl snow field dict into a single dict (order is irrelevant)
+    # snow_fields = {level: [list of snow fields for each level equal to number of ensemble plus ctrl member]}
+    snow_fields = {level: ens[STASH_NUM_SNOW_LAYERS][level] + ctrl[STASH_NUM_SNOW_LAYERS][level] for level in ens[STASH_NUM_SNOW_LAYERS].keys()}
 
-    # 3. combine land-ice and snow mask into one (True if permafrost, or enough snow from any member, is present)
+    # 3.Create a single 2D array to determine whether there was any snow, in any ensemble member, on any pseudo-level
+    comb_snow_mask = create_combined_snow_masks(snow_fields)
+
+    # 4. Combine land-ice and snow mask into one (True if permafrost, or enough snow from any member, is present)
     ice_snow_mask = np.logical_or(landice_mask, comb_snow_mask)
 
-    # 4. set perturbations to 0.0 where ice or enough snow is present
+    # 5. set perturbations to 0.0 where ice or enough snow is present
     for stash in STASH_TO_MAKE_PERTS:
         if stash in MULTI_LEVEL_STASH:
             for level in corr_data[stash]:
@@ -417,12 +464,12 @@ def zero_land_ice_snow_perts(corr_data, ens, ctrl):
         else:
             corr_data[stash] = apply_mask(corr_data[stash], ice_snow_mask)
 
-    # 5. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field,
-    #     replacing the data, and then adding the field to the correction dictionary
-    comb_snow_field = ctrl[STASH_SNOW_ANY_LAYER][0]
+    # 6. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field on
+    # the first pseudo level, replacing the data, and then adding the field to the correction dictionary
+    comb_snow_field = ctrl[STASH_NUM_SNOW_LAYERS][1][0]
     snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
     comb_snow_field.set_data_provider(snow_array_provider)
-    corr_data[STASH_SNOW_ANY_LAYER] = comb_snow_field
+    corr_data[STASH_NUM_SNOW_LAYERS] = comb_snow_field
 
     return corr_data
 
@@ -451,9 +498,17 @@ def save_fields_file(data, in_files, filename):
     # open a FieldFile object:
     ens_ff = in_files[0].copy(include_fields=False)
 
+    # # add the fields:
+    # for stash in data.keys():
+    #     if stash in MULTI_LEVEL_STASH:
+    #         for level in data[stash]:
+    #             ens_ff.fields.append(data[stash][level])
+    #     else:
+    #         ens_ff.fields.append(data[stash])
+
     # add the fields:
     for stash in data.keys():
-        if stash in MULTI_LEVEL_STASH:
+        if type(data[stash]) == dict:
             for level in data[stash]:
                 ens_ff.fields.append(data[stash][level])
         else:
@@ -475,15 +530,22 @@ def save_fields_file(data, in_files, filename):
 
 def save_ice_snow_fields(comb_snow_mask, corr_data, ctrl_file):
 
+    """
+    Save snow and ice field
+    :param comb_snow_mask: (bool): combined snow and ice mask
+    :param corr_data:
+    :param ctrl_file:
+    :return:
+    """
 
-    # replace data in the control field with the combined snow boolean field (snow > 0.05 = True for any member),
+    # replace data in the control field with the combined snow boolean field (snow present in any layer = True for any member),
     #   so it can be saved and used for the next cycle
-    comb_snow_field = corr_data[STASH_SNOW_ANY_LAYER]
+    comb_snow_field = corr_data[STASH_NUM_SNOW_LAYERS]
     snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
     comb_snow_field.set_data_provider(snow_array_provider)
 
     # snow field in a dictionary and filename, ready for save_fields_file() function
-    snow_ice_field_dict = {STASH_SNOW_ANY_LAYER: [comb_snow_field]}
+    snow_ice_field_dict = {STASH_NUM_SNOW_LAYERS: [comb_snow_field]}
     # add any land-use fields (including ice)
     snow_ice_field_dict.update({STASH_LANDFRAC: corr_data[STASH_LANDFRAC]})
     #{stash: field_i[0] for (stash, field_i) in ctrl_data[STASH_LANDFRAC].items()}
@@ -507,7 +569,7 @@ def save_ice_snow_fields(comb_snow_mask, corr_data, ctrl_file):
 if __name__ == '__main__':
 
     """
-    Routine 1 of 2 for creating the ensemble soil moisture content (SMC) and soil temperature (TSOIL) perturbation 
+    Routine 1 of 2 for creating the ensemble soil moisture content (SMC) perturbation 
     correction.
     
     1) Loads in data
