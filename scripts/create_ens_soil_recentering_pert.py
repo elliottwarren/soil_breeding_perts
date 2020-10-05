@@ -3,7 +3,7 @@
 """
 Calculate the correction (perturbation) needed to recenter the mean of the ensemble, toward the ensemble control member.
 I.e. ensemble mean = 28, and control member = 32, then recentering correction to apply on all members on the next
-cycle is +4. Corrections applied to soil moisture content (SMC). Data used is for t+3 of
+cycle is +4. Corrections applied to soil moisture content (SMC) and soil temperature (TSOIL). Data used is for t+3 of
 the current cycle. Output then gets used next cycle, and is valid for t-3.
 
 This script is doing the recentering step of the 'breeding method'.
@@ -54,8 +54,8 @@ if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'
+    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
@@ -73,6 +73,7 @@ MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
+STASH_TSOIL = 20
 STASH_LANDFRAC = 216
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
 STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
@@ -81,13 +82,13 @@ PSEUDO_LEVEL_LANDICE = 9
 
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
 
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # constraints on which fields to load in for a STASH variable
 STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
