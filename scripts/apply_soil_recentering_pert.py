@@ -55,6 +55,7 @@ if ROSE_DATACPT6H is None:
 # STASH codes to use:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
+STASH_TSOIL = 20
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
 STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # land use fractions:
@@ -63,11 +64,11 @@ STASH_LANDFRAC = 216
 PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS]
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS]
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC]
+MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # ------------------------------------
 
@@ -288,7 +289,7 @@ def zero_snow_cell_perts(corr_data, total_pert):
         return field
 
     # extract out snow mask
-    snow_field =  corr_data[STASH_NUM_SNOW_LAYERS]
+    snow_field = corr_data[STASH_NUM_SNOW_LAYERS]
     snow_data = snow_field.get_data()
     snow_mask = np.logical_and(snow_data == 1.0, snow_data != snow_field.bmdi)
 
