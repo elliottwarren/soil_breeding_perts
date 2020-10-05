@@ -122,7 +122,7 @@ def load_prev_ens_correction_data():
     Loads in the correction data (ensemble mean - control field) from the previous cycle. Sorted into a dict structure
     by field E.g. {9: {1: [field1], 2: [field2], ...}} where 9 = STASH code and 1 and 2 are levels
 
-    Also contains the land_sea mask (STASH = 30), required by the soil moisture content field
+    Also contains the land_sea mask (STASH = 30), required by the soil moisture content and soil temperature field
     :return: corr_data_in (dictionary) correction data
     """
 
@@ -371,7 +371,8 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 if __name__ == '__main__':
 
     """
-    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) correction, to the EKF perturbation.
+    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) and soil temperature (TSOIL) correction, to 
+    the EKF perturbation.
     """
 
     ## Read and process
