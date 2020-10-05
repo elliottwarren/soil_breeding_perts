@@ -584,10 +584,10 @@ if __name__ == '__main__':
     """
 
     ## Read
-    # load the SMC and other input data for all members:
+    # load the SMC, TSOIL, and other input data for all members:
     ens_data, ens_ff_files = load_engl_member_data(MEMBERS_PERT_INTS)
 
-    # load the SMC and other input data for the control member only:
+    # load the SMC, TSOIL, and other input data for the control member only:
     ctrl_data, ctrl_ff_files = load_engl_member_data(CONTROL_MEMBER)
 
     ## Process
@@ -597,7 +597,7 @@ if __name__ == '__main__':
     # create the soil recentering correction (ensemble mean - control).
     ens_correction = mean_minus_control(ctrl_data, ens_mean)
 
-    # set pert values of SMC to 0 where ice or snow is present on land, in any member (including control)
+    # set pert values of SMC and TSOIL to 0 where ice or snow is present on land, in any member (including control)
     # the snow field used is appended to the ens_correction dictionary for use in the next cycle.
     ens_correction = zero_land_ice_snow_perts(ens_correction, ens_data, ctrl_data)
 
