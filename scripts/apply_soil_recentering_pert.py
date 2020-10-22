@@ -64,11 +64,11 @@ STASH_LANDFRAC = 216
 PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS]
+STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS]
 # these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+MULTI_LEVEL_STASH = [STASH_SMC]
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+STASH_TO_MAKE_PERTS = [STASH_SMC]
 
 # ------------------------------------
 
