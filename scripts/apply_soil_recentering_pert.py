@@ -371,7 +371,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 if __name__ == '__main__':
 
     """
-    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) and soil temperature (TSOIL) correction, to 
+    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) correction, to 
     the EKF perturbation.
     """
 
@@ -384,9 +384,6 @@ if __name__ == '__main__':
         total_pert = load_ekf_combine_with_correction(corr_data)
     else:
         raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
-
-    # apply snow field masking to the combined perturbations (0.0 all tiles with snow on them)
-    total_pert = zero_snow_cell_perts(corr_data, total_pert)
 
     ## Save
     # save total perturbations in the original perturbation file
