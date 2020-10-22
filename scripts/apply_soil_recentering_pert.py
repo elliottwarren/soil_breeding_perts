@@ -314,6 +314,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     include more information in the future.
 
     :param centred_pert: (dictionary) EKF - correction. The increment to apply, to center the ensemble mean
+    :keyword: template_file: (str) template file to cmake a copy and reate a new file from.
     """
 
     # Ideally use the existing EKF file as a template
