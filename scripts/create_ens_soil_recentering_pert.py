@@ -473,7 +473,7 @@ def pert_check_correction(corr_data, ens, ctrl):
         # 5. set perturbations to 0.0 where ice or enough snow is present
         for stash in STASH_TO_MAKE_PERTS:
             if stash in MULTI_LEVEL_STASH:
-                for level in corr_data[stash]:
+                for level in corr_data[stash].keys():
             
                     corr_data[stash][level] = apply_mask(corr_data[stash][level], ice_snow_mask)
             else:
@@ -548,7 +548,7 @@ def pert_check_correction(corr_data, ens, ctrl):
 
             """
             Create stdev mask using stash field and pert data. Mask is True where absolute pert values are above 1
-            standard deviation.
+            standard deviation of all the ensemle member fields.
             :param data_fields: Original full fields for the stash
             :param pert_field: Perturbation fields for the stash
             :return: stdev_mask (2D bool array):
@@ -589,6 +589,7 @@ def pert_check_correction(corr_data, ens, ctrl):
 
         return corr_data
 
+    print('Making perturbations:')
     # 1. Zero perturbation where ice or snow is present on any tile, in any ensemble member or the control.
     # SMC and TSOIL
     print('Ice and snow masking:')
@@ -601,6 +602,22 @@ def pert_check_correction(corr_data, ens, ctrl):
     # 3. Zero perturbations where absolute pert values are larger than 1 standard deviation of the original field.
     print('abs(pert) > 1 standard deviation of field masking:')
     corr_data = zero_perts_gt_stdev(corr_data, ens, ctrl)
+
+    # print out additional diagnostics (descriptive statistics of fields)
+    if DIAGNOSTICS:
+        print('\nPerturbation descriptive statistics:')
+        for stash in STASH_TO_MAKE_PERTS:
+            if stash in MULTI_LEVEL_STASH:
+                for (level, pert_field) in corr_data[stash].items():
+                    data = pert_field.get_data()
+                    data_flat = data[np.where(data != corr_data[stash][level].bmdi)].flatten()
+                    # print min, max , rms
+                    print('STASH:' + str(pert_field.lbuser4) + '; ' + 'level:' + str(pert_field.lblev)+':')
+                    print('maximum: '+str(np.amax(data_flat)))
+                    print('minimum: '+str(np.amin(data_flat)))
+                    print('rms    : '+str(np.sqrt(np.mean(data_flat**2))))
+        print('')
+
 
     return corr_data
 
