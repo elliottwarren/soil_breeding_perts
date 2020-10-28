@@ -389,7 +389,8 @@ def apply_masks_to_perts(mask_data, total_pert):
                     data = pert_field.get_data()
                     data_flat = data[np.where(data != corr_data[stash][level].bmdi)].flatten()
                     # print min, max , rms
-                    print('STASH:' + str(pert_field.lbuser4) + '; ' + 'lblev:' + str(pert_field.lblev)+':')
+                    #print('STASH:' + str(pert_field.lbuser4) + '; ' + 'lblev:' + str(pert_field.lblev)+':')
+                    print('STASH: {}; lblev: {}:'.format(pert_field.lbuser4, pert_field.lblev))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
@@ -418,7 +419,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # name the output file for EKF - correction
     output_pert_file = ROSE_DATAC + '/engl_smc/engl_surf_inc_correction'
 
-    os.system('echo file being saved using '+template_file+' as a template')
+    os.system('echo File being saved using '+template_file+' as a template')
 
     # now go through the fields in the pert_ff_in and as long as they are not duplicates
     # of the fields in the this_perts object, add them to pert_ff_out.
@@ -458,7 +459,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # Output to file
     pert_ff_out.to_file(output_pert_file)
 
-    print('saved: ' + output_pert_file)
+    print('Saved: ' + output_pert_file)
 
     return
 
