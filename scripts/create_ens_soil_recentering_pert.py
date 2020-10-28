@@ -83,7 +83,7 @@ STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAY
 MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+STASH_TO_MAKE_PERTS = [STASH_SMC]
 
 # constraints on which fields to load in for a STASH variable
 STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
@@ -395,12 +395,12 @@ def pert_check_correction(corr_data, ens, ctrl):
         if DIAGNOSTICS:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
-            print('STASH:'+str(field.lbuser4)+'; '+'level:'+str(field.lblev)+'; Additional number of perturbation values masked: ' + str(masked))
+            print('STASH: {}; lblev: {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, masked))
 
         # mask the data
         tmp_pert_data[mask] = 0.0
 
-        # now put that data back into the corr_data field:
+        # now put that data back into the field:
         array_provider = mule.ArrayDataProvider(tmp_pert_data)
         field.set_data_provider(array_provider)
 
