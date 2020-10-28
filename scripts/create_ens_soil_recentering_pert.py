@@ -676,7 +676,7 @@ def pert_check_correction(corr_data, ens, ctrl):
                     data = pert_field.get_data()
                     data_flat = data[np.where(data != corr_data[stash][level].bmdi)].flatten()
                     # print min, max , rms
-                    print('STASH:' + str(pert_field.lbuser4) + '; ' + 'lblev:' + str(pert_field.lblev)+':')
+                    print('STASH: {}; lblev: {}:'.format(pert_field.lbuser4, pert_field.lblev))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
@@ -723,7 +723,7 @@ def save_fields_file(data, in_files, filename):
     # save
     ens_ff.to_file(ens_filepath)
 
-    print('saved: '+ens_filepath)
+    print('Saved: '+ens_filepath)
 
     return
 
