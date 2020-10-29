@@ -47,10 +47,10 @@ DIAGNOSTICS = True
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
-    # ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1-tile scheme
-    # ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'  # 1-tile scheme
-    ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9-tile scheme
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T1200Z'  # 9-tile scheme
+    ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1-tile scheme
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'  # 1-tile scheme
+    #ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9-tile scheme
+    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T1200Z'  # 9-tile scheme
     ENS_MEMBER = '1'
     ENS_SOIL_CORR_FILEPATH = ROSE_DATACPT6H +'/engl_smc/engl_soil_correction'
     ENS_SOIL_EKF_FILEPATH = ROSE_DATAC+'/engl_smc/engl_surf_inc' # control member ETKF stochastic perts
@@ -72,7 +72,7 @@ STASH_LANDFRAC = 216
 PSEUDO_LEVEL_LANDICE = 9
 
 # STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
 
 # STASH codes to fields that are for masking.
 STASH_MASKS_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_NUM_SNOW_LAYERS]
@@ -82,7 +82,7 @@ STASH_MASKS_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_NUM_SNOW_LAYERS]
 MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # ------------------------------------
 
@@ -233,11 +233,11 @@ def load_ekf_combine_with_correction(corr_data):
 
         return ff_data, ff_obj
 
-    # STASH codes to load in from the analysis dump:
-    # stash codes as dict key, then a dict of constraints, if any:
-    stash_from_dump = {STASH_SMC: None,
-                       STASH_LAND_SEA_MASK: None,
-                       STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}}
+    # STASH codes to load in from the EKF file
+    # include all perts first, then update dict with land_sea_mask stash and land fraction
+    stash_from_dump = {stash: None for stash in STASH_TO_MAKE_PERTS}
+    stash_from_dump.update({STASH_LAND_SEA_MASK: None,
+                       STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}})
 
     # load in the EKF and other
     soil_fields, smc_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
@@ -358,7 +358,7 @@ def apply_masks_to_perts(mask_data, total_pert):
         for stash in STASH_TO_MAKE_PERTS:
             for level in total_pert[stash]:
 
-                # Extract out the combined mask
+                # Extract out the combined mask (STASH and level specific)
                 comb_mask = extract_mask(mask_data[stash][level])
 
                 if stash in MULTI_LEVEL_STASH:
