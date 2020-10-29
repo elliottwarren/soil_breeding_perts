@@ -49,8 +49,8 @@ if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
+    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
     DIAGNOSTICS = True
@@ -83,7 +83,7 @@ STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAY
 MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
 
 # constraints on which fields to load in for a STASH variable
 STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
