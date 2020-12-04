@@ -2,10 +2,10 @@
 
 """
 Calculate the correction (perturbation) needed to recenter the mean of the ensemble, toward the ensemble control member.
-I.e. ensemble mean = 28, and control member = 32, then recentering correction to apply on all members on the next
+I.e. ensemble mean = 28, and control member = 32, then recentring correction to apply on all members on the next
 cycle is +4. Corrections can be applied to soil moisture content (SMC), soil temperature (TSOIL), snow temperature
 (TSNOW) and surface temperature (TSKIN). Data used is for t+3 of the current cycle. Output then gets used next cycle,
-and is valid for t-3. This script is doing the recentering step of the 'breeding method'. A boolean of the combined snow
+and is valid for t-3. This script is doing the recentring step of the 'breeding method'. A boolean of the combined snow
 field is needed for the next cycle,  in order to determine where the EKF IAU increments need to be set to 0.
 
 Created by Elliott Warren Wed 20th Nov 2019: elliott.warren@metoffice.gov.uk
@@ -74,26 +74,40 @@ STASH_TSNOW = 384
 STASH_LANDFRAC = 216
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
 STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
-# pseudo level for land-ice mask
+# pseudo level for land-ice mask:
 PSEUDO_LEVEL_LANDICE = 9
 
 
-# STASH codes to load:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS,
-                 STASH_LANDFRAC]
+# STASH codes to load.
+# Includes single and multi-level codes
+# STASH codes in here but not in the multi lists are assumed to be single level fields without pseudo-levels.
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN,
+                 STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
 
-# these need to be all multi-level (not pseudo level) stash codes
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL, STASH_LANDFRAC, STASH_NUM_SNOW_LAYERS]
-
-# a list of stash codes we want to actually act on to produce perturbations in this routine:
+# A list of STASH codes we want to act on to produce perturbations in this routine:
 STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN]
 
-# constraints on which fields to load in for a STASH variable
+# These are the multi soil level STASH codes
+MULTI_SOIL_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+
+# These are multi pseudo-level stash codes
+# If a single aggregate tile is used for these stash codes, the field will simply be read in having a single
+# pseudo-level.
+MULTI_PSEUDO_LEVEL_STASH = [STASH_LANDFRAC, STASH_TSKIN, STASH_NUM_SNOW_LAYERS, STASH_TSNOW]
+
+# Constraint to only read in a specific tile, e.g. just the ice tile for the land fraction
 STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
 
-# layer depth of each soil layer, to be set once input files are read in:
-DZ_SOIL_LEVELS = {}
+# Multiple surface layers
+MULTI_LAYER_STASH = [STASH_TSNOW]
 
+# Combined list for multiple soil and pseudo level stash codes to aid with dictionary looping
+# Currently having both multiple soil and pseudo levels is not supported
+MULTI_LEVEL_STASH = MULTI_SOIL_LEVEL_STASH + MULTI_PSEUDO_LEVEL_STASH
+for stash in MULTI_SOIL_LEVEL_STASH:
+    if stash in MULTI_PSEUDO_LEVEL_STASH:
+        raise EnvironmentError('STASH {} present in MULTI_SOIL_LEVEL_STASH and MULTI_PSEUDO_LEVEL_STASH. Currently '\
+                               'processing a STASH present in both is unsupported'.format(stash))
 
 # ------------------------------------------
 
@@ -166,6 +180,186 @@ def engl_cycle_dump(member):
 # loading functions
 
 
+# def load_engl_member_data(member_list):
+#
+#     """
+#     Loads in input data from ensemble run members. This can be from a large number of files, and sorted into a dict
+#     structure by field, level to produce a list containing the data for ensemble members. Can read in data from a single
+#     member (e.g. control)
+#
+#     :return: ens_data (multi level dictionary =
+#         {STASH: {level or surface layer: {pseudo level: [items = [n member fields]}}}).
+#         For STASH codes that cannot be on pseudo-levels, that dictionary level is not used.
+#         e.g.{9: {1: [field1a, field2a, field3a], 2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are model
+#         levels. The list of fields within are from all the different members and have length n where n = maximum number
+#         of members): all ensemble field data for STASH variables.
+#     :return: ens_ff_files (list): field files for all members
+#
+#     Extra help:
+#     field.lblev = level code (e.g. 1 to 70. 3 special entries for special fields e.g. 7777 or 8888 (see UM F03 docs.)
+#         soil fields use lblev as their level. Land fraction has special 4 digit value here instead.
+#     field.lbuser4 = STASH code
+#     field.lbuser5 = pseudo level (land surface tiles will have these). For STASH codes with multiple surface layers and
+#         on pseudo-levels, this will be = (pseudo-level * 1000) + surface layer number. e.g. 9002 = pseudo-level 9,
+#         surface layer = 2.
+#     """
+#
+#     def check_list_length(stash_list, member_list, **kwargs):
+#
+#         """
+#         Check the length of each fields list to ensure it is equal to the number of ensemble members. If not, throw an
+#         error
+#         :param stash_list: (list) list of fields
+#
+#         :keyword: level: (int) information on what stash, level or pseudo level we're on. e.g. stash = 9 or level = 2.
+#         """
+#
+#         # Find the number of members that should be read in (if control then 1, if ensemble then the number of ensemble
+#         # members
+#         if member_list == CONTROL_MEMBER:  # single member, therefore 1
+#             n_mem = 1
+#         else:
+#             n_mem = len(member_list)
+#
+#         # Length of the lists read in
+#         list_length = len(stash_list)
+#
+#         # Test whether the read in list length is equal to the number of expected members.
+#         if n_mem != list_length:
+#
+#             # level detail string (which stash, level and/or pseudo-level are we on?)
+#             level_detail = '; '.join(['{} = {}'.format(key, item) for key, item in kwargs.items()])
+#
+#             raise ValueError('{} fields found in ensemble for {}, but number of members expected is {} is expected'.
+#                 format(list_length, level_detail, n_mem))
+#
+#         return
+#
+#     # ensure member_list is actually an iterable list of strings, if not already.
+#     if isinstance(member_list, (float, int, str)):
+#         member_list = [member_list]
+#
+#     # set up the returned data structure...
+#     ens_data = {}
+#     for stash in STASH_TO_LOAD:
+#         if stash in MULTI_LEVEL_STASH or stash in STASH_LEVEL_CONSTRAINTS or stash in MULTI_PSEUDO_LEVEL_STASH\
+#                 or stash in MULTI_LAYER_STASH:
+#             ens_data[stash] = {}
+#         else:
+#             ens_data[stash] = []
+#
+#     # and the fieldsfile objects, which we can use as templates later on:
+#     ens_ff_files = []
+#
+#     # load in the required data for each file:
+#     for member in member_list:
+#
+#         # dump file with the data fields (valid for t+3 for this cycle and t-3 next cycle)
+#         soil_src_file = engl_cycle_dump(member)
+#         # data file to open:
+#         ff_file_in = mule.DumpFile.from_file(soil_src_file)
+#         ff_file_in.remove_empty_lookups()
+#
+#         # pull out the fields:
+#         for field in ff_file_in.fields:
+#             # is this a stash to load?
+#             if field.lbuser4 in STASH_TO_LOAD:
+#
+#                 # 1. Multiple soil level stash
+#                 if field.lbuser4 in MULTI_SOIL_LEVEL_STASH:
+#
+#                     # 1.1 Also on multiple pseudo levels (tiles)
+#                     # Dictionary will be 3 levels deep here:
+#                     # lbuser4 = stash; lblev = level; lbuser5 = pseudo-level (tile)
+#                     if field.lbuser4 in MULTI_PSEUDO_LEVEL_STASH:
+#                         # Read in pseudo-level...
+#                         if field.lblev in ens_data[field.lbuser4].keys():  # is level already present
+#                             if field.lbuser5 in ens_data[field.lbuser4][field.lblev].keys():  # is pseudo-level present
+#                                 ens_data[field.lbuser4][field.lblev][field.lbuser5].append(field)
+#                             else:
+#                                 ens_data[field.lbuser4][field.lblev][field.lbuser5] = [field]
+#                         else:
+#                             ens_data[field.lbuser4][field.lblev] = {field.lbuser5: [field]}
+#
+#                     # 1.2 Multi-level stash without pseudo-levels
+#                     # Dictionary is 2 levels deep
+#                     else:
+#                         if field.lblev in ens_data[field.lbuser4].keys():  # is level already present in dict
+#                             ens_data[field.lbuser4][field.lblev].append(field)
+#                         else:
+#                             ens_data[field.lbuser4][field.lblev] = [field]
+#
+#                 # 2. Multiple surface layers
+#                 elif field.lbuser4 in MULTI_LAYER_STASH:
+#
+#                     # 2.1 Also on multiple pseudo-levels (currently just TSNOW)
+#                     if field.lbuser4 in MULTI_PSEUDO_LEVEL_STASH:
+#
+#                         # Check if lbuser5 represents surface layer and pseudo-level or just surface layer
+#                         # if it is both, lbuser5 will be equal to (pseudo-level * 1000) + surface layer
+#                         # else, a single aggregate tile is being used and lbuser5 will equal 0 + surface layer
+#
+#                         surface_layer = field.lbuser5 % 1000  # % finds the remainder and works even if lbuser <= 1000
+#                         if field.lbuser5 > 1000:
+#                             pseudo_level = field.lbuser5 // 1000  # // finds the quotient or number of times divided
+#                         else:
+#                             pseudo_level = 1  # state that a single aggregate tile is being used
+#
+#                         # Dictionary will be 3 levels deep here:
+#                         # STASH; surface-layer; pseudo_level (tile)
+#                         # Read in pseudo-level...
+#                         if surface_layer in ens_data[field.lbuser4].keys():  # is layer already present
+#                             if pseudo_level in ens_data[field.lbuser4][surface_layer].keys():  # is pseudo-level present
+#                                 ens_data[field.lbuser4][surface_layer][pseudo_level].append(field)
+#                             else:
+#                                 ens_data[field.lbuser4][surface_layer][pseudo_level] = [field]
+#                         else:
+#                             ens_data[field.lbuser4][surface_layer] = {pseudo_level: [field]}
+#
+#                 # 3. Single model level
+#                 else:
+#                     # 3.1 Multiple pseudo levels on a single model level
+#                     if field.lbuser4 in MULTI_PSEUDO_LEVEL_STASH:
+#                         if field.lbuser5 in ens_data[field.lbuser4].keys():
+#                             ens_data[field.lbuser4][field.lbuser5].append(field)
+#                         else:
+#                             ens_data[field.lbuser4][field.lbuser5] = [field]
+#
+#                     # 3.2. Special instance, only want the ice land fraction
+#                     elif field.lbuser4 == STASH_LANDFRAC:
+#                         if field.lbuser5 in STASH_LEVEL_CONSTRAINTS[STASH_LANDFRAC]:
+#                             # Read in landfrac pseudo-level...
+#                             if field.lbuser5 in ens_data[field.lbuser4].keys():
+#                                 ens_data[field.lbuser4][field.lbuser5].append(field)
+#                             else:
+#                                 ens_data[field.lbuser4][field.lbuser5] = [field]
+#
+#                     # 3.3 Single level fields without pseudo-levels
+#                     else:
+#                         ens_data[field.lbuser4].append(field)
+#
+#         # keep the fieldsfile objects for reference:
+#         ens_ff_files.append(ff_file_in)
+#
+#     # Verify that all the STASH codes have data from every ensemble member (all lists equal to number of members):
+#     # Three nested if statements as <ens_data> can be up to three dictionary levels deep
+#     # STASH
+#     for stash in STASH_TO_LOAD:
+#         if type(ens_data[stash]) is not dict:
+#             check_list_length(ens_data[stash], member_list, stash=stash)
+#         else:
+#             # Model level or surface layer
+#             for level in ens_data[stash]:
+#                 if type(ens_data[stash][level]) is not dict:
+#                     check_list_length(ens_data[stash][level], member_list, stash=stash, level=level)
+#                 else:
+#                     # Pseudo-level
+#                     for pseudo_level in ens_data[stash][level]:
+#                         check_list_length(ens_data[stash][level][pseudo_level], member_list,
+#                                           stash=stash, level=level, pseudo_level=pseudo_level)
+#
+#     return ens_data, ens_ff_files
+
 def load_engl_member_data(member_list):
 
     """
@@ -173,18 +367,96 @@ def load_engl_member_data(member_list):
     structure by field, level to produce a list containing the data for ensemble members. Can read in data from a single
     member (e.g. control)
 
-    :return: ens_data (dictionary, keys = STASH, level; items = member fields], e.g.{9: {1: [field1a, field2a, field3a],
-        2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are levels. The list of fields within are from all the
-        different members and have length n where n = maximum number of members): all ensemble field data for STASH
-        variables.
+    :return: ens_data (multi level dictionary =
+        {STASH: {level or surface layer: {pseudo level: [items = [n member fields]}}}).
+        For STASH codes that cannot be on pseudo-levels, that dictionary level is not used.
+        e.g.{9: {1: [field1a, field2a, field3a], 2: [field1b, field2b ...]}} where 9 = stash code, 1 and 2 are model
+        levels. The list of fields within are from all the different members and have length n where n = maximum number
+        of members): all ensemble field data for STASH variables.
     :return: ens_ff_files (list): field files for all members
 
     Extra help:
     field.lblev = level code (e.g. 1 to 70. 3 special entries for special fields e.g. 7777 or 8888 (see UM F03 docs.)
         soil fields use lblev as their level. Land fraction has special 4 digit value here instead.
-    field.lbuser4 = stash code
-    field.lbuser5 = pseudo level (land surface tiles will have these)
+    field.lbuser4 = STASH code
+    field.lbuser5 = pseudo level (land surface tiles will have these). For STASH codes with multiple surface layers and
+        on pseudo-levels, this will be = (pseudo-level * 1000) + surface layer number. e.g. 9002 = pseudo-level 9,
+        surface layer = 2.
     """
+
+    def get_field_level(field):
+
+        """Get the level that this field is on. If the field is not on a specific level, set it = 1."""
+
+        # soil level
+        if field.lbuser4 in MULTI_SOIL_LEVEL_STASH:
+            level = field.lblev
+        # for layer fields, use the layer as the level. If also on pseudo levels, lbuser5 has both layer and
+        # pseduo-level, therefore need to isolate the surface layer.
+        elif field.lbuser4 in MULTI_LAYER_STASH:
+            level = field.lbuser5 % 1000  # % finds the remainder and works even if lbuser <= 1000
+        # if field isn't on a specific layer, set it equal to 1.
+        else:
+            level = 1
+
+        return level
+
+    def get_field_pseudo_level(field):
+
+        """Get the pseudo-level from the field. If on aggregate tiles, pseudo-level extracted will be 1.
+        """
+
+        # setup pseudo level
+        if field.lbuser4 in MULTI_PSEUDO_LEVEL_STASH:
+            # If field is on multiple layers and pseudo-levels, lbuser5 will contain information on
+            # both, therefore need to extract the pseudo-level.
+            if field.lbuser4 in MULTI_LAYER_STASH:
+                if field.lbuser5 > 1000:
+                    # // finds the quotient or number of times divided
+                    pseudo_level = field.lbuser5 // 1000
+                else:
+                    # if aggregate tiles used, lbuser5 will be the pseudo-level
+                    pseudo_level = field.lbuser5
+                    # normal attribute with pseudo-level on will be 1 if on aggregate tiles
+            else:
+                pseudo_level = field.lbuser5
+        # if tile cannot be on pseudo-levels, simply set it = 1.
+        else:
+            pseudo_level = 1
+
+        return pseudo_level
+
+    def check_list_length(stash_list, member_list, **kwargs):
+
+        """
+        Check the length of each fields list to ensure it is equal to the number of ensemble members. If not, throw an
+        error
+        :param stash_list: (list) list of fields
+
+        :keyword: level: (int) information on what stash, level or pseudo level we're on. e.g. stash = 9 or level = 2.
+        """
+
+        # Find the number of members that should be read in (if control then 1, if ensemble then the number of ensemble
+        # members
+        if member_list == CONTROL_MEMBER:  # single member, therefore 1
+            n_mem = 1
+        else:
+            n_mem = len(member_list)
+
+        # Length of the lists read in
+        list_length = len(stash_list)
+
+        # Test whether the read in list length is equal to the number of expected members.
+        if n_mem != list_length:
+
+            # level detail string (which stash, level and/or pseudo-level are we on?)
+            level_detail = '; '.join(['{} = {}'.format(key, item) for key, item in kwargs.items()])
+
+            raise ValueError('{} fields found in ensemble for {}, but number of members expected is {} is expected'.
+                format(list_length, level_detail, n_mem))
+
+        return
+
 
     # ensure member_list is actually an iterable list of strings, if not already.
     if isinstance(member_list, (float, int, str)):
@@ -193,10 +465,12 @@ def load_engl_member_data(member_list):
     # set up the returned data structure...
     ens_data = {}
     for stash in STASH_TO_LOAD:
-        if stash in MULTI_LEVEL_STASH:
-            ens_data[stash] = {}
-        else:
-            ens_data[stash] = []
+        ens_data[stash] = {}
+        # if stash in MULTI_LEVEL_STASH or stash in STASH_LEVEL_CONSTRAINTS or stash in MULTI_PSEUDO_LEVEL_STASH\
+        #         or stash in MULTI_LAYER_STASH:
+        #     ens_data[stash] = {}
+        # else:
+        #     ens_data[stash] = {}
 
     # and the fieldsfile objects, which we can use as templates later on:
     ens_ff_files = []
@@ -204,7 +478,7 @@ def load_engl_member_data(member_list):
     # load in the required data for each file:
     for member in member_list:
 
-        # file with SMC and TSOIL data (valid for t+3 for this cycle and t-3 next cycle)
+        # dump file with the data fields (valid for t+3 for this cycle and t-3 next cycle)
         soil_src_file = engl_cycle_dump(member)
         # data file to open:
         ff_file_in = mule.DumpFile.from_file(soil_src_file)
@@ -215,55 +489,63 @@ def load_engl_member_data(member_list):
             # is this a stash to load?
             if field.lbuser4 in STASH_TO_LOAD:
 
-                # 1. Multi level stash
-                if field.lbuser4 in MULTI_LEVEL_STASH:
+                # flag to say "load the data". This is used so if there are STASH constraints saying this
+                # particular field shouldn't be loaded, it can be set to False.
+                load_flag = True
 
-                    # 1.1 Special instance for land fraction as it involves pseudo-levels (lblev = 9999)
-                    # Each "level" is a separate land use tile
-                    if field.lbuser4 == STASH_LANDFRAC:
-                        if field.lbuser5 in STASH_LEVEL_CONSTRAINTS[STASH_LANDFRAC]:
-                            # Read in landfrac pseudo-level...
-                            if field.lbuser5 in ens_data[field.lbuser4].keys():
-                                ens_data[field.lbuser4][field.lbuser5].append(field)
-                            else:
-                                ens_data[field.lbuser4][field.lbuser5] = [field]
+                # If only certain fields are needed for this STASH, 
+                if field.lbuser4 in STASH_LEVEL_CONSTRAINTS:
+                    # if not the field we are looking for...
+                    if field.lbuser5 not in STASH_LEVEL_CONSTRAINTS[field.lbuser4]:
+                        load_flag = False
 
-                    # 1.2 Special instance for "snow on any layer" as it also involves pseudo-levels (lblev = 9999)
-                    # Each "level" is a separate land use tile
-                    elif field.lbuser4 == STASH_NUM_SNOW_LAYERS:
-                        # Read in pseudo-level...
-                        if field.lbuser5 in ens_data[field.lbuser4].keys():
-                            ens_data[field.lbuser4][field.lbuser5].append(field)
+                # If this field meets all the constraints ...
+                if load_flag is True:
+
+                    # Get field level and pseudo-level to help store them in a dictionary
+                    # if field doesn't have one of them, it shall be set equal to 1 and used to ensure the number of
+                    # nested dictionaries and lists is the same across all the loaded variables.
+                    level = get_field_level(field)
+
+                    pseudo_level = get_field_pseudo_level(field)
+
+                    # load...
+                    # load in the fields
+                    if level in ens_data[field.lbuser4].keys():  # is level already present
+                        if pseudo_level in ens_data[field.lbuser4][level].keys():  # is pseudo-level present
+                            ens_data[field.lbuser4][level][pseudo_level].append(field)
                         else:
-                            ens_data[field.lbuser4][field.lbuser5] = [field]
-
-                    # 1.3 Read in multi-level stash on normal model levels...
+                            ens_data[field.lbuser4][level][pseudo_level] = [field]
                     else:
-                        if field.lblev in ens_data[field.lbuser4].keys():
-                            ens_data[field.lbuser4][field.lblev].append(field)
-                        else:
-                            ens_data[field.lbuser4][field.lblev] = [field]
-
-                # 2. Single level
-                else:
-                    # Single level fields are a flat list:
-                    ens_data[field.lbuser4].append(field)
+                        ens_data[field.lbuser4][level] = {pseudo_level: [field]}
 
         # keep the fieldsfile objects for reference:
         ens_ff_files.append(ff_file_in)
 
-    # verify that all the data is included:
+    # Verify that all the STASH codes have data from every ensemble member (all lists equal to number of members):
+    # Three nested if statements as <ens_data> can be up to three dictionary levels deep
+    # STASH
+
     for stash in STASH_TO_LOAD:
-        if stash in MULTI_LEVEL_STASH:
-            for level in ens_data[stash]:
-                n_mems = len(ens_data[stash][level])
-                if n_mems != len(member_list):
-                    raise ValueError('{} fields found in ensemble for STASH code {}, level {}, '
-                                     'but NUM_PERT_MEMBERS ({}) is expected'.format(
-                                     n_mems, stash, level, len(member_list)))
-        else:
-            if len(ens_data[stash]) != len(member_list):
-                raise ValueError('Not all data found!')
+        for level in ens_data[stash]:
+            for pseudo_level in ens_data[stash][level]:
+                check_list_length(ens_data[stash][level][pseudo_level], member_list,
+                                      stash=stash, level=level, pseudo_level=pseudo_level)
+
+
+    # for stash in STASH_TO_LOAD:
+    #     if type(ens_data[stash]) is not dict:
+    #         check_list_length(ens_data[stash], member_list, stash=stash)
+    #     else:
+    #         # Model level or surface layer
+    #         for level in ens_data[stash]:
+    #             if type(ens_data[stash][level]) is not dict:
+    #                 check_list_length(ens_data[stash][level], member_list, stash=stash, level=level)
+    #             else:
+    #                 # Pseudo-level
+    #                 for pseudo_level in ens_data[stash][level]:
+    #                     check_list_length(ens_data[stash][level][pseudo_level], member_list,
+    #                                       stash=stash, level=level, pseudo_level=pseudo_level)
 
     return ens_data, ens_ff_files
 
@@ -292,35 +574,80 @@ def mean_ens_data(in_data):
     cahceoperator = CachingOperator()
 
     for stash in STASH_TO_MAKE_PERTS:
-        if stash in MULTI_LEVEL_STASH:
-            mean_data[stash] = {}
-            for level in in_data[stash]:
+        mean_data[stash] = {}
+        for level in in_data[stash]:
+            mean_data[stash][level] = {}
+            for pseudo_level in in_data[stash][level]:
                 # add them up:
-                sum_field = adder(in_data[stash][level])
+                sum_field = adder(in_data[stash][level][pseudo_level])
                 # now divide:
                 mean_field = divver(sum_field)
                 # and store that in the output structure, as cached data:
-                mean_data[stash][level] = cahceoperator(mean_field)
+                mean_data[stash][level][pseudo_level] = cahceoperator(mean_field)
                 # now use get_data to actually do the meaning at this point
                 # and cache the result. This means the timer is accurate.
-                _ = mean_data[stash][level].get_data()
-        # encase code is expanded to include other vars such as soil surface temperature
-        else:
-            # sum the fields:
-            sum_field = adder(in_data[stash])
-            # now divided:
-            mean_field = divver(sum_field)
-            # and store that in the output structure, as cached data:
-            mean_data[stash] = cahceoperator(mean_field)
-            # now use get_data to actually do the meaning at this point
-            # and cache the result  This means the timer is accurate.
-            _ = mean_data[stash].get_data()
+                _ = mean_data[stash][level][pseudo_level].get_data()
 
-    # add the land-sea mask
-    mean_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK][0]
+            # # Just on multiple soil or pseudo levels
+            # else:
+            #     # add them up:
+            #     sum_field = adder(in_data[stash][level])
+            #     # now divide:
+            #     mean_field = divver(sum_field)
+            #     # and store that in the output structure, as cached data:
+            #     mean_data[stash][level] = cahceoperator(mean_field)
+            #     # now use get_data to actually do the meaning at this point
+            #     # and cache the result. This means the timer is accurate.
+            #     _ = mean_data[stash][level].get_data()
 
-    # add the land-use masks
-    mean_data[STASH_LANDFRAC] = {key: item[0] for key, item in in_data[STASH_LANDFRAC].items()}
+        # # encase code is expanded to include other vars such as soil surface temperature
+        # else:
+        #     # sum the fields:
+        #     sum_field = adder(in_data[stash])
+        #     # now divided:
+        #     mean_field = divver(sum_field)
+        #     # and store that in the output structure, as cached data:
+        #     mean_data[stash] = cahceoperator(mean_field)
+        #     # now use get_data to actually do the meaning at this point
+        #     # and cache the result  This means the timer is accurate.
+        #     _ = mean_data[stash].get_data()
+
+    # for stash in STASH_TO_MAKE_PERTS:
+    #     if stash in MULTI_LEVEL_STASH:
+    #         mean_data[stash] = {}
+    #         for level in in_data[stash]:
+    #
+    #             if type(level) is dict:
+    #
+    #                 #2 lvls
+    #
+    #             else:
+    #             # add them up:
+    #             sum_field = adder(in_data[stash][level])
+    #             # now divide:
+    #             mean_field = divver(sum_field)
+    #             # and store that in the output structure, as cached data:
+    #             mean_data[stash][level] = cahceoperator(mean_field)
+    #             # now use get_data to actually do the meaning at this point
+    #             # and cache the result. This means the timer is accurate.
+    #             _ = mean_data[stash][level].get_data()
+    #     # encase code is expanded to include other vars such as soil surface temperature
+    #     else:
+    #         # sum the fields:
+    #         sum_field = adder(in_data[stash])
+    #         # now divided:
+    #         mean_field = divver(sum_field)
+    #         # and store that in the output structure, as cached data:
+    #         mean_data[stash] = cahceoperator(mean_field)
+    #         # now use get_data to actually do the meaning at this point
+    #         # and cache the result  This means the timer is accurate.
+    #         _ = mean_data[stash].get_data()
+
+    # add the land-sea mask (assumes common for all members, hence take the first member's mask)
+    mean_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK][1][1]
+
+    # add each of the land-use mask (assumes common for all members, hence take the first member's mask)
+    mean_data[STASH_LANDFRAC] = {key: item[0] for key, item in in_data[STASH_LANDFRAC][1].items()}
 
     return mean_data
 
@@ -343,27 +670,25 @@ def mean_minus_control(control_data, mean_data):
 
     corrction_data = {}
     for stash in STASH_TO_MAKE_PERTS:
-        if stash in MULTI_LEVEL_STASH:
-            corrction_data[stash] = {}
-            for level in control_data[stash]:
+        corrction_data[stash] = {}
+        for level in control_data[stash]:
+            corrction_data[stash][level] = {}
+            for pseudo_level in control_data[stash][level]:
 
                 # ensemble mean field - control field
-                corrction_data[stash][level] = subber([mean_data[stash][level], control_data[stash][level][0]])
+                corrction_data[stash][level][pseudo_level] = \
+                    subber([mean_data[stash][level][pseudo_level], control_data[stash][level][pseudo_level][0]])
 
-        else:
-            # ensemble mean field - control field
-            corrction_data[stash] = subber([mean_data[stash], control_data[stash][0]])
+    # else:
+    #     # ensemble mean field - control field
+    #     corrction_data[stash] = subber([mean_data[stash], control_data[stash][0]])
 
     # now add the land sea mask from the first member as well.
-    # Take the land-sea mask out of the single element lists
-    corrction_data[STASH_LAND_SEA_MASK] = control_data[STASH_LAND_SEA_MASK][0]
+    # Take the land-sea mask out of the single element list
+    corrction_data[STASH_LAND_SEA_MASK] = control_data[STASH_LAND_SEA_MASK][1][1][0]
 
-    #corrction_data[STASH_LANDFRAC] = control_data[STASH_LANDFRAC]
     # add the land use as well (taken the items out of a single element list
-    corrction_data[STASH_LANDFRAC] = {key: item[0] for key, item in control_data[STASH_LANDFRAC].items()}
-
-    # add the snow cover from the control as well.
-    # Intended only to be used as a field's file template for storing the combined ensemble snow field boolean later
+    corrction_data[STASH_LANDFRAC] = {key: item[0] for key, item in control_data[STASH_LANDFRAC][1].items()}
 
     return corrction_data
 
@@ -412,14 +737,57 @@ def pert_check_correction(corr_data, ens, ctrl):
     def zero_land_ice_snow_perts(corr_data, ens, ctrl):
 
         """
-        Zero perturbations where ice or snow are present on any tile, for any member or control
+        Zero perturbations where:
+            1) Land-ice is present
+            2) Number of snow layers differs
+            3) There is any snow on the tile in any member (mask for all except TSNOW)
         :param corr_data:
         :param ctrl:
         :return ice_snow_mask: ice and snow mask with True being present on any grid cell for any member
         :return:
         """
 
-        def create_combined_snow_masks(snow_fields):
+        def num_snow_layers_differ_mask(snow_fields):
+
+            """
+            Determine whether any ensemble member had different number of snow layers on any pseudo level.
+            Loop through each pseudo-level first and determine whether the number of snow levels is the same across
+            all the ensemble members. If not, then the mask is set to True at those points.
+            :param snow_fileds: (dict): All snow fields across all the ensemble members
+            :return: snow_masks: (dict): Snow masks for each pseudo-level
+            :return: comb_snow_mask: (bool array): Whether any ensemble member had any snow on any pseudo level
+
+            Pseudo-level is a land-surface tile type e.g. ice, urban, soil
+            """
+
+            # Define list to fill of 2D bool arrays
+            snow_masks = {}
+
+            for (level, snow_fields_level) in snow_fields.items():
+
+
+                # Extract out all snow data for this pseudo-level
+                snow_data = [snow_field_i.get_data() for snow_field_i in snow_fields_level]
+
+                # Setup mask array (initialised as False everywhere, so no masking)
+                snow_masks[level] = np.zeros(snow_data[0].shape, dtype=bool)
+
+                # loop through all idx positions. If not a missing data point, check whether all the snow fields data
+                # are the same at this point. Done by comparing all field's data to the first field. If any member
+                # has a different value, then set the mask point to True for later masking.
+                for (idx_x, idx_y), snow_data_0_value in np.ndenumerate(snow_data[0]):
+                    if snow_data_0_value != snow_fields_level[0].bmdi:
+                        # if any fields have different values, then this resolves to True
+                        snow_masks[level][idx_x, idx_y] = \
+                            np.any([snow_data_i[idx_x, idx_y] != snow_data_0_value for snow_data_i in snow_data])
+
+            # create a combined snow mask, where for each point, it is True if True on any pseudo-level
+            stack = np.stack([i for i in snow_masks.values()], axis=2)
+            comb_snow_mask = np.any(stack, axis=2)
+
+            return snow_masks, comb_snow_mask
+
+        def num_snow_layers_gt_0_mask(snow_fields):
 
             """
             Create a single 2D bool array to show whether any ensemble member had any snow on any pseudo level.
@@ -427,12 +795,11 @@ def pert_check_correction(corr_data, ens, ctrl):
             then combine together to see if any snow was present on any pseudo level.
             :param snow_fileds: (dict): All snow fields across all the ensemble members
             :return: comb_snow_mask: (bool array): Whether any ensemble member had any snow on any pseudo level
-
             Pseudo-level is a land-surface tile type e.g. ice, urban, soil
             """
 
             # Define list to fill of 2D bool arrays
-            snow_masks = []
+            snow_masks = {}
 
             # Iterate over each pseudo-level to combine snow data across all ensemble members
             for (level, snow_fields_level) in snow_fields.items():
@@ -447,51 +814,89 @@ def pert_check_correction(corr_data, ens, ctrl):
 
                 # Create a list of  2d boolean arrays showing whether any of the ensemble members had snow on any layer, for
                 # each pseudo-level
-                snow_masks.append(np.any(stacked_snow_masks, axis=2))
+                snow_masks[level] = np.any(stacked_snow_masks, axis=2)
 
             # Combine the snow masks across the pseudo-levels to show whether there was snow, on any pseudo level, for any
             # ensemble member
-            snow_mask_stack = np.stack(snow_masks, axis=2)
+            snow_mask_stack = np.stack([i for i in snow_masks.values()], axis=2)
             comb_snow_mask = np.any(snow_mask_stack, axis=2)
 
-            return comb_snow_mask
+            return snow_masks, comb_snow_mask
+
+        def store_snow_masks(ctrl, mask_dict, lbuser6_value):
+
+            """
+            Store the snow masks in fields and output in a dictionary, so they can be added to <corr_data>
+            :param ctrl:
+            :param mask_dict:
+            :param lbuser6_value:
+            :return: snow_dict_out:
+            """
+
+            snow_dict_out = {}
+            for pseudo_level in mask_dict.keys():
+                comb_snow_field = mule.Field.copy(ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level][0])
+                snow_array_provider = mule.ArrayDataProvider(mask_dict[pseudo_level])
+                comb_snow_field.set_data_provider(snow_array_provider)
+                # lbuser6 is free space for users. Use it to define this mask is for differing number of snow layers
+                comb_snow_field.lbuser6 = lbuser6_value
+                snow_dict_out[pseudo_level] = comb_snow_field
+
+            return snow_dict_out
 
         # 1. Get land-ice mask
-        # load in the land-ice mask
+        # load in the land-ice data
         landice_data = corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].get_data()
         # create land-ice mask
         landice_mask = np.logical_and(landice_data == 1.0,
                                       landice_data != corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].bmdi)
 
-        # 2. combine ens and ctrl snow field dict into a single dict (order is irrelevant)
-        # snow_fields = {level: [list of snow fields for each level equal to number of ensemble plus ctrl member]}
-        snow_fields = {level: ens[STASH_NUM_SNOW_LAYERS][level] + ctrl[STASH_NUM_SNOW_LAYERS][level] for level in ens[STASH_NUM_SNOW_LAYERS].keys()}
+        # 2. Combine ens and ctrl snow field dict into a single dict (order is irrelevant)
+        # snow_fields = {pseudo_level: [list of snow fields for each level equal to number of ensemble plus ctrl member]}
+        snow_fields = {pseudo_level: ens[STASH_NUM_SNOW_LAYERS][1][pseudo_level] + ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level]
+                       for pseudo_level in ens[STASH_NUM_SNOW_LAYERS][1].keys()}
 
-        # 3.Create a single 2D array to determine whether there was any snow, in any ensemble member, on any pseudo-level
-        comb_snow_mask = create_combined_snow_masks(snow_fields)
+        # 3. Masks for whether the number of snow layers differed across the members, on each pseudo-level
+        snow_diff_masks, comb_snow_diff_mask = num_snow_layers_differ_mask(snow_fields)
 
-        # 4. Combine land-ice and snow mask into one (True if permafrost, or enough snow from any member, is present)
-        ice_snow_mask = np.logical_or(landice_mask, comb_snow_mask)
+        # 4. Masks for whether there was any snow on any member, on each pseduo-level
+        snow_any_masks, comb_snow_any_mask = num_snow_layers_gt_0_mask(snow_fields)
 
-        # 5. set perturbations to 0.0 where ice or enough snow is present
+        # 5. Apply the masks
         for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for level in corr_data[stash].keys():
-            
-                    corr_data[stash][level] = apply_mask(corr_data[stash][level], ice_snow_mask)
-            else:
-                corr_data[stash] = apply_mask(corr_data[stash], ice_snow_mask)
+            for level in corr_data[stash].keys():
+                for pseudo_level in corr_data[stash][level]:
 
-        # 6. Add the snow and ice field to the corr_data, for saving. Done by taking a copy of the control snow field on
-        # the first pseudo level, replacing the data, and then adding the field to the correction dictionary.
-        # Will work whether the control uses the 9 tile pseudo-levels or a single aggregate pseudo-level (where the single
-        # level = 1)
-        comb_snow_field = ctrl[STASH_NUM_SNOW_LAYERS][1][0]
-        snow_array_provider = mule.ArrayDataProvider(comb_snow_mask)
-        comb_snow_field.set_data_provider(snow_array_provider)
-        corr_data[STASH_NUM_SNOW_LAYERS] = comb_snow_field
+#                   # 5.1 Apply the ice mask (set = 0.0)
+                    corr_data[stash][level][pseudo_level] = \
+                        apply_mask(corr_data[stash][level][pseudo_level], landice_mask)
 
-        return corr_data, ice_snow_mask
+                    # 5.2 If number of snow layers differed (set = 0.0)
+                    corr_data[stash][level][pseudo_level] = \
+                        apply_mask(corr_data[stash][level][pseudo_level], snow_diff_masks[pseudo_level])
+
+                    # 5.3 If there was any snow on the tile (set = 0.0)
+                    # For all pert variables except snow temperature, where having snow on a tile is fine.
+                    if stash != STASH_TSNOW:
+                        corr_data[stash][level][pseudo_level] = \
+                            apply_mask(corr_data[stash][level][pseudo_level], snow_any_masks[pseudo_level])
+
+
+        # 6. Add the snow masks and ice field to a dictionary, for later saving.
+        #   1) Land-ice field (used to make mask)
+        #   2) Number of snow layers present differed between the members
+        #   3) Snow present on any layer
+        mask_dict = {}
+        mask_dict[STASH_LANDFRAC] = ctrl[STASH_LANDFRAC]
+
+        mask_dict[STASH_NUM_SNOW_LAYERS] = {}
+        snow_diff_fields = store_snow_masks(ctrl, snow_diff_masks, 1)
+        mask_dict[STASH_NUM_SNOW_LAYERS][1] = snow_diff_fields
+
+        snow_any_fields = store_snow_masks(ctrl, snow_any_masks, 2)
+        mask_dict[STASH_NUM_SNOW_LAYERS][2] = snow_any_fields
+
+        return corr_data, mask_dict
 
     def zero_perts_lt_m10degc(corr_data, ens, ctrl):
 
@@ -502,10 +907,12 @@ def pert_check_correction(corr_data, ens, ctrl):
         :param ens:
         :param ctrl:
         :return:
+
+        Only applied to the SMC perturbations as the other variables are fine to vary below freezing.
         """
 
         # Combine TSOIL dicts from ensemble and ctrl
-        tsoil_fields = {level: ens[STASH_TSOIL][level] + ctrl[STASH_TSOIL][level] for level in ens[STASH_TSOIL].keys()}
+        tsoil_fields = {level: ens[STASH_TSOIL][level][1] + ctrl[STASH_TSOIL][level][1] for level in ens[STASH_TSOIL].keys()}
 
         tsoil_masks = {}
 
@@ -519,13 +926,13 @@ def pert_check_correction(corr_data, ens, ctrl):
             # Stack the arrays together along a third dimension to enable the next step
             stacked_tsoil_masks = np.stack(tsoil_masks_level, axis=2)
 
-            # Create a list of  2d boolean arrays showing whether any of the ensemble members had tsoil < -10 degC for
+            # Create a list of 2d boolean arrays showing whether any of the ensemble members had tsoil < -10 degC for
             #  this level. Append mask to list for function export
             tsoil_comb_mask = np.any(stacked_tsoil_masks, axis=2)
             tsoil_masks[level] = tsoil_comb_mask
 
-            # apply the mask to the original data
-            for stash in STASH_TO_MAKE_PERTS:
+            # apply the mask to the SMC perts ONLY
+            for stash in STASH_TO_MAKE_PERTS:  ####### change to SMC only
                 if stash in MULTI_LEVEL_STASH:
                     corr_data[stash][level] = apply_mask(corr_data[stash][level], tsoil_comb_mask)
                 else:
@@ -660,9 +1067,9 @@ def pert_check_correction(corr_data, ens, ctrl):
     # 1. Zero perturbation where ice or snow is present on any tile, in any ensemble member or the control.
     # SMC and TSOIL
     print('Ice and snow masking:')
-    corr_data, ice_snow_mask = zero_land_ice_snow_perts(corr_data, ens, ctrl)
+    corr_data, ice_snow_masks = zero_land_ice_snow_perts(corr_data, ens, ctrl)
 
-    # 2. Zero perturbations where TSOIL is below -10 degC
+    # 2. Zero SMC perturbations ONLY where TSOIL is below -10 degC (other pert variables are unaffected)
     print('TSOIL < -10degC masking (each level done in turn):')
     corr_data, tsoil_masks = zero_perts_lt_m10degc(corr_data, ens, ctrl)
 
@@ -686,7 +1093,7 @@ def pert_check_correction(corr_data, ens, ctrl):
         print('')
 
     # Put masks into fields for later saving, with a valid land-sea mask
-    masks = create_mask_field_dict(ctrl, ice_snow_mask, tsoil_masks, stdev_masks)
+    masks = create_mask_field_dict(ctrl, ice_snow_masks, tsoil_masks, stdev_masks)
 
     return corr_data, masks
 
