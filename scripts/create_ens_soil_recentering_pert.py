@@ -588,63 +588,8 @@ def mean_ens_data(in_data):
                 # and cache the result. This means the timer is accurate.
                 _ = mean_data[stash][level][pseudo_level].get_data()
 
-            # # Just on multiple soil or pseudo levels
-            # else:
-            #     # add them up:
-            #     sum_field = adder(in_data[stash][level])
-            #     # now divide:
-            #     mean_field = divver(sum_field)
-            #     # and store that in the output structure, as cached data:
-            #     mean_data[stash][level] = cahceoperator(mean_field)
-            #     # now use get_data to actually do the meaning at this point
-            #     # and cache the result. This means the timer is accurate.
-            #     _ = mean_data[stash][level].get_data()
-
-        # # encase code is expanded to include other vars such as soil surface temperature
-        # else:
-        #     # sum the fields:
-        #     sum_field = adder(in_data[stash])
-        #     # now divided:
-        #     mean_field = divver(sum_field)
-        #     # and store that in the output structure, as cached data:
-        #     mean_data[stash] = cahceoperator(mean_field)
-        #     # now use get_data to actually do the meaning at this point
-        #     # and cache the result  This means the timer is accurate.
-        #     _ = mean_data[stash].get_data()
-
-    # for stash in STASH_TO_MAKE_PERTS:
-    #     if stash in MULTI_LEVEL_STASH:
-    #         mean_data[stash] = {}
-    #         for level in in_data[stash]:
-    #
-    #             if type(level) is dict:
-    #
-    #                 #2 lvls
-    #
-    #             else:
-    #             # add them up:
-    #             sum_field = adder(in_data[stash][level])
-    #             # now divide:
-    #             mean_field = divver(sum_field)
-    #             # and store that in the output structure, as cached data:
-    #             mean_data[stash][level] = cahceoperator(mean_field)
-    #             # now use get_data to actually do the meaning at this point
-    #             # and cache the result. This means the timer is accurate.
-    #             _ = mean_data[stash][level].get_data()
-    #     # encase code is expanded to include other vars such as soil surface temperature
-    #     else:
-    #         # sum the fields:
-    #         sum_field = adder(in_data[stash])
-    #         # now divided:
-    #         mean_field = divver(sum_field)
-    #         # and store that in the output structure, as cached data:
-    #         mean_data[stash] = cahceoperator(mean_field)
-    #         # now use get_data to actually do the meaning at this point
-    #         # and cache the result  This means the timer is accurate.
-    #         _ = mean_data[stash].get_data()
-
     # add the land-sea mask (assumes common for all members, hence take the first member's mask)
-    mean_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK][1][1]
+    mean_data[STASH_LAND_SEA_MASK] = in_data[STASH_LAND_SEA_MASK][1][1][0]
 
     # add each of the land-use mask (assumes common for all members, hence take the first member's mask)
     mean_data[STASH_LANDFRAC] = {key: item[0] for key, item in in_data[STASH_LANDFRAC][1].items()}
@@ -679,9 +624,6 @@ def mean_minus_control(control_data, mean_data):
                 corrction_data[stash][level][pseudo_level] = \
                     subber([mean_data[stash][level][pseudo_level], control_data[stash][level][pseudo_level][0]])
 
-    # else:
-    #     # ensemble mean field - control field
-    #     corrction_data[stash] = subber([mean_data[stash], control_data[stash][0]])
 
     # now add the land sea mask from the first member as well.
     # Take the land-sea mask out of the single element list
@@ -723,7 +665,7 @@ def pert_check_correction(corr_data, ens, ctrl):
         if DIAGNOSTICS:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
-            print('STASH: {}; lblev: {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, masked))
+            print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, field.lbuser5, masked))
 
         # mask the data
         tmp_pert_data[mask] = 0.0
@@ -823,27 +765,6 @@ def pert_check_correction(corr_data, ens, ctrl):
 
             return snow_masks, comb_snow_mask
 
-        def store_snow_masks(ctrl, mask_dict, lbuser6_value):
-
-            """
-            Store the snow masks in fields and output in a dictionary, so they can be added to <corr_data>
-            :param ctrl:
-            :param mask_dict:
-            :param lbuser6_value:
-            :return: snow_dict_out:
-            """
-
-            snow_dict_out = {}
-            for pseudo_level in mask_dict.keys():
-                comb_snow_field = mule.Field.copy(ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level][0])
-                snow_array_provider = mule.ArrayDataProvider(mask_dict[pseudo_level])
-                comb_snow_field.set_data_provider(snow_array_provider)
-                # lbuser6 is free space for users. Use it to define this mask is for differing number of snow layers
-                comb_snow_field.lbuser6 = lbuser6_value
-                snow_dict_out[pseudo_level] = comb_snow_field
-
-            return snow_dict_out
-
         # 1. Get land-ice mask
         # load in the land-ice data
         landice_data = corr_data[STASH_LANDFRAC][PSEUDO_LEVEL_LANDICE].get_data()
@@ -882,21 +803,7 @@ def pert_check_correction(corr_data, ens, ctrl):
                             apply_mask(corr_data[stash][level][pseudo_level], snow_any_masks[pseudo_level])
 
 
-        # 6. Add the snow masks and ice field to a dictionary, for later saving.
-        #   1) Land-ice field (used to make mask)
-        #   2) Number of snow layers present differed between the members
-        #   3) Snow present on any layer
-        mask_dict = {}
-        mask_dict[STASH_LANDFRAC] = ctrl[STASH_LANDFRAC]
-
-        mask_dict[STASH_NUM_SNOW_LAYERS] = {}
-        snow_diff_fields = store_snow_masks(ctrl, snow_diff_masks, 1)
-        mask_dict[STASH_NUM_SNOW_LAYERS][1] = snow_diff_fields
-
-        snow_any_fields = store_snow_masks(ctrl, snow_any_masks, 2)
-        mask_dict[STASH_NUM_SNOW_LAYERS][2] = snow_any_fields
-
-        return corr_data, mask_dict
+        return corr_data, landice_mask, snow_diff_masks, snow_any_masks
 
     def zero_perts_lt_m10degc(corr_data, ens, ctrl):
 
@@ -929,173 +836,186 @@ def pert_check_correction(corr_data, ens, ctrl):
             # Create a list of 2d boolean arrays showing whether any of the ensemble members had tsoil < -10 degC for
             #  this level. Append mask to list for function export
             tsoil_comb_mask = np.any(stacked_tsoil_masks, axis=2)
-            tsoil_masks[level] = tsoil_comb_mask
+            # Store using the same [level][pseuo-level] format as other dictionaries in this code. Pseudo-level is
+            #   always 1 as it's not applicable for TSOIL.
+            tsoil_masks[level] = {1: tsoil_comb_mask}
 
             # apply the mask to the SMC perts ONLY
-            for stash in STASH_TO_MAKE_PERTS:  ####### change to SMC only
-                if stash in MULTI_LEVEL_STASH:
-                    corr_data[stash][level] = apply_mask(corr_data[stash][level], tsoil_comb_mask)
-                else:
-                    # Apply each TSOIL mask in turn
-                    print('Multiple TSOIL masks applied to single level stash field: STASH:'+str(corr_data[stash].lbuser4))
-                    corr_data[stash] = apply_mask(corr_data[stash], tsoil_comb_mask)
+            corr_data[STASH_SMC][level][1] = apply_mask(corr_data[STASH_SMC][level][1], tsoil_comb_mask)
 
         return corr_data, tsoil_masks
 
-    def zero_perts_gt_stdev(corr_data, ens, ctrl):
+    def store_masks_in_fields(ctrl, snow_diff_masks, snow_any_masks, tsoil_masks):
 
         """
-        Zero perturbations larger than 1 standard deviation of the original field.
-        :param corr_data (dict): perturbations
-        :param ens (dict): ensemble member fields
-        :param ctrl (dict): ctrl member fields
-        :return: corr_data:
-        :return stdev_masks:
-
-        Functions for single or multi-level fields
-        """
-
-        def create_stdev_mask(data_fields, pert_field):
-
-            """
-            Create stdev mask using stash field and pert data. Mask is True where absolute pert values are above 1
-            standard deviation of all the ensemle member fields.
-            :param data_fields: Original full fields for the stash
-            :param pert_field: Perturbation fields for the stash
-            :return: stdev_mask (2D bool array):
-            """
-
-            # calculate standard deviation of the data
-            data = np.array([i.get_data() for i in data_fields])
-            stdev = np.nanstd(data[np.where(data != data_fields[0].bmdi)])
-
-            # find where perts are above 1 standard deviation of the field
-            pert = pert_field.get_data()
-            stdev_mask = np.logical_and(np.abs(pert) > stdev, pert != pert_field.bmdi)
-
-            return stdev_mask
-
-        for stash in STASH_TO_MAKE_PERTS:
-
-            if stash in MULTI_LEVEL_STASH:
-
-                stash_fields = {level: ens[stash][level] + ctrl[stash][level] for level in ens[stash].keys()}
-
-                # keep stdev_masks for saving later
-                stdev_masks = {}
-
-                # Loop each level and apply each mask in turn
-                for (level, stash_fields_level) in stash_fields.items():
-                    # Create mask
-                    stdev_mask_level = create_stdev_mask(stash_fields_level, corr_data[stash][level])
-
-                    # apply the mask to the original data:
-                    corr_data[stash][level] = apply_mask(corr_data[stash][level], stdev_mask_level)
-
-                    # store mask
-                    stdev_masks[level] = stdev_mask_level
-
-            else:
-                # Combine ens and ctrl fields
-                stash_fields = ens[stash] + ctrl[stash]
-
-                # Create stdev mask
-                stdev_mask_level = create_stdev_mask(stash_fields, corr_data[stash])
-
-                # apply the mask to the original data:
-                corr_data[stash] = apply_mask(corr_data[stash], stdev_mask_level)
-
-                # overwrite masl dict to just the mask
-                stdev_masks = stdev_mask_level
-
-        return corr_data, stdev_masks
-
-    def create_mask_field_dict(ctrl, ice_snow_mask, tsoil_masks, stdev_masks):
-
-        """
-        Put mask data into fields, within a dictionary, for saving. Though the ice-snow mask is saved in the correction
-        data, it will be saved here as well for completion.
+        Store the masks in fields and all within a dicitonary for saving
         :param ctrl:
-        :param ice_snow_mask:
+        :param snow_diff_masks:
+        :param snow_any_masks:
         :param tsoil_masks:
-        :param stdev_masks:
-        :return:
+        :return: mask_fields:
         """
 
-        def replace_field_data_with_mask(field, mask):
+        def mask_to_field(field, mask, lbuser6=None):
 
             """
-            Add mask array to field for later saving. NOTE: field data is overwritten, therefore use a field that is no
-            longer needed (e.g. control ensemble member field after its been used).
+            Store the masks in fields and output in a dictionary
+            :param field:
+            :param mask:
+            :param lbuser6:
+            :return:
             """
 
-            array_provider = mule.ArrayDataProvider(mask)
-            field.set_data_provider(array_provider)
+            mask_field = mule.Field.copy(field)
+            snow_array_provider = mule.ArrayDataProvider(mask)
+            mask_field.set_data_provider(snow_array_provider)
 
-            return field
+            # lbuser6 is free space for users. Use it to define this mask is for differing number of snow layers
+            if lbuser6 is not None:
+                mask_field.lbuser6 = lbuser6
 
-        # merge masks for each pert, for exporting. Keep snow mask separate for easier diagnosing.
+            return mask_field
+
         mask_fields = {}
-        for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                mask_fields[stash] = {}
-            else:
-                mask_fields[stash] = []
 
-        for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for (level, ctrl_field_level) in ctrl[stash].items():
-                    # Combine -10degC and standard deviation masks together for saving, as 1) they need to overwrite
-                    # data in a field to be saved and 2) multiple instances of the same field in a file, with the same
-                    # stash and level, will be confusing.
-                    # Ctrl fields were single element lists, hence [0] index.
-                    comb_mask = np.logical_or(tsoil_masks[level], stdev_masks[level])
-                    mask_fields[stash][level] = replace_field_data_with_mask(ctrl_field_level[0], comb_mask)
+        # Add the land-ice mask
+        mask_fields[STASH_LANDFRAC] = {1: {key: item[0] for key, item in ctrl[STASH_LANDFRAC][1].items()}}
 
-        # Add ice-snow mask for completion. Done by taking a copy of the control snow field on
-        # the first pseudo level. Will work whether the control uses the 9 tile pseudo-levels or a single aggregate
-        # pseudo-level (where the single level = 1)
-        mask_fields[STASH_NUM_SNOW_LAYERS] = replace_field_data_with_mask(ctrl[STASH_NUM_SNOW_LAYERS][1][0],
-                                                                          ice_snow_mask)
+        # Put the two different snow masks into fields, and store them in a dictionary. Use [level] of dictionary
+        #   to split the two different masks up.
+        mask_fields[STASH_NUM_SNOW_LAYERS] = {1: {}, 2: {}}
+        # mask_fields[STASH_NUM_SNOW_LAYERS][level] = {}
+        for pseudo_level in ctrl[STASH_NUM_SNOW_LAYERS][1].keys():
+            # field to take a copy of to store snow masks
+            orig_snow_field = ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level][0]
+
+            # Store the snow masks in fields for exporting
+            # Change the lbuser6 value in each to later distinguish between the two NUM_SNOW_LAYER masks
+            # Use lbuser6 as the [level] in the stored mask field dictionary
+            mask_fields[STASH_NUM_SNOW_LAYERS][1][pseudo_level] = \
+                mask_to_field(orig_snow_field, snow_diff_masks[pseudo_level], lbuser6=1)
+
+            mask_fields[STASH_NUM_SNOW_LAYERS][2][pseudo_level] = \
+                mask_to_field(orig_snow_field, snow_any_masks[pseudo_level], lbuser6=2)
+
+        # Store the <-  10 degC TSOIL masks
+        mask_fields[STASH_TSOIL] = {}
+        for level in tsoil_masks.keys():
+            mask_fields[STASH_TSOIL][level] = {}
+            for pseudo_level in tsoil_masks[level].keys():
+                # field to take a copy of to store tsoil masks
+                orig_tsoil_field = ctrl[STASH_TSOIL][level][pseudo_level][0]
+
+                # Store TSOIL mask in copy of TSOIL field.
+                # No need for lbuser6 as there is only one set of TSOIL masks
+                mask_fields[STASH_TSOIL][level][pseudo_level] = \
+                    mask_to_field(orig_tsoil_field, tsoil_masks[level][pseudo_level])
 
         # add land-sea mask because it needs it
-        mask_fields[STASH_LAND_SEA_MASK] = ctrl[STASH_LAND_SEA_MASK][0]
+        mask_fields[STASH_LAND_SEA_MASK] = {1: {1: ctrl[STASH_LAND_SEA_MASK][1][1][0]}}
 
         return mask_fields
 
+    # def cap_perts_gt_bgerr(corr_data, ens, ctrl):
+    #
+    #     """
+    #     Cap perturbations that are greater than the back ground error in SURF * factor, where factor is also taken
+    #     from SURF
+    #     :param corr_data (dict): perturbations
+    #     :param ens (dict): ensemble member fields
+    #     :param ctrl (dict): ctrl member fields
+    #     :return: corr_data:
+    #     :return stdev_masks:
+    #
+    #     Functions for single or multi-level fields
+    #     """
+    #
+    #     def create_stdev_mask(data_fields, pert_field):
+    #
+    #         """
+    #         Create stdev mask using stash field and pert data. Mask is True where absolute pert values are above 1
+    #         standard deviation of all the ensemle member fields.
+    #         :param data_fields: Original full fields for the stash
+    #         :param pert_field: Perturbation fields for the stash
+    #         :return: stdev_mask (2D bool array):
+    #         """
+    #
+    #         # calculate standard deviation of the data
+    #         data = np.array([i.get_data() for i in data_fields])
+    #         stdev = np.nanstd(data[np.where(data != data_fields[0].bmdi)])
+    #
+    #         # find where perts are above 1 standard deviation of the field
+    #         pert = pert_field.get_data()
+    #         stdev_mask = np.logical_and(np.abs(pert) > stdev, pert != pert_field.bmdi)
+    #
+    #         return stdev_mask
+    #
+    #     # Background errors and factor for pert variables from SURF
+    #     err_tsoil = 2.0  # [K]
+    #     err_smc = [0.03] + [0.026]*(len(corr_data[STASH_SMC].keys())-1)  # [m3 m-3] All but first soil level is 0.026
+    #     err_tsnow = 2.0  # [K]
+    #     err_tskin = 2.3  # [K]
+    #     err_factor = 3.0  # values are capped beyond (err * err_factor)
+    #
+    #     # keep stdev_masks for saving later
+    #     bgerr_masks = {}
+    #     for stash in STASH_TO_MAKE_PERTS:
+    #         for level in corr_data[stash].keys():
+    #             for pseudo_level in corr_data[stash][level].keys():
+    #
+    #
+    #                 # Loop each level and apply each mask in turn
+    #                 # Create mask
+    #                 stdev_mask_level = create_stdev_mask(stash_fields_level, corr_data[stash][level])
+    #
+    #                 # apply the mask to the original data:
+    #                 corr_data[stash][level] = apply_mask(corr_data[stash][level], stdev_mask_level)
+    #
+    #                 # store mask
+    #                 stdev_masks[level] = stdev_mask_level
+    #
+    #
+    #     return corr_data, stdev_masks
+
     print('Making perturbations:')
-    # 1. Zero perturbation where ice or snow is present on any tile, in any ensemble member or the control.
-    # SMC and TSOIL
+    # 1. Zero perturbation where for any ensemble member, on any tile there is
+    #    1) Land ice
+    #    2) Snow is present (all but TSNOW where having snow is fine)
+    #    3) Number of snow layers differs between members.
     print('Ice and snow masking:')
-    corr_data, ice_snow_masks = zero_land_ice_snow_perts(corr_data, ens, ctrl)
+    corr_data, landice_mask, snow_diff_masks, snow_any_masks = zero_land_ice_snow_perts(corr_data, ens, ctrl)
 
     # 2. Zero SMC perturbations ONLY where TSOIL is below -10 degC (other pert variables are unaffected)
-    print('TSOIL < -10degC masking (each level done in turn):')
+    print('TSOIL < -10 degC masking:')
     corr_data, tsoil_masks = zero_perts_lt_m10degc(corr_data, ens, ctrl)
 
     # 3. Zero perturbations where absolute pert values are larger than 1 standard deviation of the original field.
-    print('abs(pert) > 1 standard deviation of field masking:')
-    corr_data, stdev_masks = zero_perts_gt_stdev(corr_data, ens, ctrl)
+    #print('abs(pert) > 1 standard deviation of field masking:')
+    #corr_data, stdev_masks = cap_perts_gt_bgerr(corr_data, ens, ctrl)
 
     # print out additional diagnostics (descriptive statistics of fields)
     if DIAGNOSTICS:
         print('\nPerturbation descriptive statistics:')
         for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for (level, pert_field) in corr_data[stash].items():
+            for level in corr_data[stash].keys():
+                for (pseudo_level, pert_field) in corr_data[stash][level].items():
                     data = pert_field.get_data()
-                    data_flat = data[np.where(data != corr_data[stash][level].bmdi)].flatten()
+                    data_flat = data[np.where(data != pert_field.bmdi)].flatten()
                     # print min, max , rms
-                    print('STASH: {}; lblev: {}:'.format(pert_field.lbuser4, pert_field.lblev))
+                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev, pert_field.lbuser5))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
         print('')
 
-    # Put masks into fields for later saving, with a valid land-sea mask
-    masks = create_mask_field_dict(ctrl, ice_snow_masks, tsoil_masks, stdev_masks)
+    # 4. Put masks into fields for later saving, with a valid land-sea mask
+    #   1) Land-ice field (used to make mask)
+    #   2) Number of snow layers present differed between the members
+    #   3) Snow present on any layer
+    #   4) TSOIL < -10 degC
+    mask_fields = store_masks_in_fields(ctrl, snow_diff_masks, snow_any_masks, tsoil_masks)
 
-    return corr_data, masks
+    return corr_data, mask_fields
 
 # saving functions
 
@@ -1126,7 +1046,11 @@ def save_fields_file(data, in_files, filename):
     for stash in data.keys():
         if type(data[stash]) == dict:
             for level in data[stash]:
-                ens_ff.fields.append(data[stash][level])
+                if type(data[stash][level]) == dict:
+                    for pseudo_level in data[stash][level]:
+                        ens_ff.fields.append(data[stash][level][pseudo_level])
+                else:
+                    ens_ff.fields.append(data[stash][level])
         else:
             ens_ff.fields.append(data[stash])
 
