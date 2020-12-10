@@ -911,71 +911,11 @@ def pert_check_correction(corr_data, ens, ctrl):
                 mask_fields[STASH_TSOIL][level][pseudo_level] = \
                     mask_to_field(orig_tsoil_field, tsoil_masks[level][pseudo_level])
 
-        # add land-sea mask because it needs it
+        # add land-sea mask because it needs it (extract it out of the single element list)
         mask_fields[STASH_LAND_SEA_MASK] = {1: {1: ctrl[STASH_LAND_SEA_MASK][1][1][0]}}
 
         return mask_fields
 
-    # def cap_perts_gt_bgerr(corr_data, ens, ctrl):
-    #
-    #     """
-    #     Cap perturbations that are greater than the back ground error in SURF * factor, where factor is also taken
-    #     from SURF
-    #     :param corr_data (dict): perturbations
-    #     :param ens (dict): ensemble member fields
-    #     :param ctrl (dict): ctrl member fields
-    #     :return: corr_data:
-    #     :return stdev_masks:
-    #
-    #     Functions for single or multi-level fields
-    #     """
-    #
-    #     def create_stdev_mask(data_fields, pert_field):
-    #
-    #         """
-    #         Create stdev mask using stash field and pert data. Mask is True where absolute pert values are above 1
-    #         standard deviation of all the ensemle member fields.
-    #         :param data_fields: Original full fields for the stash
-    #         :param pert_field: Perturbation fields for the stash
-    #         :return: stdev_mask (2D bool array):
-    #         """
-    #
-    #         # calculate standard deviation of the data
-    #         data = np.array([i.get_data() for i in data_fields])
-    #         stdev = np.nanstd(data[np.where(data != data_fields[0].bmdi)])
-    #
-    #         # find where perts are above 1 standard deviation of the field
-    #         pert = pert_field.get_data()
-    #         stdev_mask = np.logical_and(np.abs(pert) > stdev, pert != pert_field.bmdi)
-    #
-    #         return stdev_mask
-    #
-    #     # Background errors and factor for pert variables from SURF
-    #     err_tsoil = 2.0  # [K]
-    #     err_smc = [0.03] + [0.026]*(len(corr_data[STASH_SMC].keys())-1)  # [m3 m-3] All but first soil level is 0.026
-    #     err_tsnow = 2.0  # [K]
-    #     err_tskin = 2.3  # [K]
-    #     err_factor = 3.0  # values are capped beyond (err * err_factor)
-    #
-    #     # keep stdev_masks for saving later
-    #     bgerr_masks = {}
-    #     for stash in STASH_TO_MAKE_PERTS:
-    #         for level in corr_data[stash].keys():
-    #             for pseudo_level in corr_data[stash][level].keys():
-    #
-    #
-    #                 # Loop each level and apply each mask in turn
-    #                 # Create mask
-    #                 stdev_mask_level = create_stdev_mask(stash_fields_level, corr_data[stash][level])
-    #
-    #                 # apply the mask to the original data:
-    #                 corr_data[stash][level] = apply_mask(corr_data[stash][level], stdev_mask_level)
-    #
-    #                 # store mask
-    #                 stdev_masks[level] = stdev_mask_level
-    #
-    #
-    #     return corr_data, stdev_masks
 
     print('Making perturbations:')
     # 1. Zero perturbation where for any ensemble member, on any tile there is
