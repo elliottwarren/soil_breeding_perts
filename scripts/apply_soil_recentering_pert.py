@@ -64,6 +64,8 @@ if ROSE_DATACPT6H is None:
 STASH_LAND_SEA_MASK = 30
 STASH_SMC = 9
 STASH_TSOIL = 20
+STASH_TSKIN = 233  # a.k.a. surface temperature
+STASH_TSNOW = 384
 STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the ideal choice for use as a snow mask
 STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # land use fractions:
@@ -71,18 +73,34 @@ STASH_LANDFRAC = 216
 # pseudo level of land ice tile (this should remain unchanged at 9!)
 PSEUDO_LEVEL_LANDICE = 9
 
-# STASH codes to load and mean:
-STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
+# STASH codes to load:
+STASH_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN,
+                 STASH_LAND_SEA_MASK, STASH_NUM_SNOW_LAYERS, STASH_LANDFRAC]
 
 # STASH codes to fields that are for masking.
-STASH_MASKS_TO_LOAD = [STASH_SMC, STASH_TSOIL, STASH_NUM_SNOW_LAYERS]
+STASH_MASKS_TO_LOAD = [STASH_TSOIL, STASH_NUM_SNOW_LAYERS]
+
+# These are the multi soil level STASH codes
+MULTI_SOIL_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
 
 # These need to be all multi-level (not pseudo level) stash codes
 # STASH_NUM_SNOW_LAYERS isn't in MULTI_LEVEL_STASH as the field used is simply a single 2D mask
-MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+#MULTI_LEVEL_STASH = [STASH_SMC, STASH_TSOIL]
+
+# These are multi pseudo-level stash codes
+# If a single aggregate tile is used for these stash codes, the field will simply be read in having a single
+# pseudo-level.
+MULTI_PSEUDO_LEVEL_STASH = [STASH_LANDFRAC, STASH_TSKIN, STASH_NUM_SNOW_LAYERS, STASH_TSNOW]
+
+# Constraint to only read in a specific tile, e.g. just the ice tile for the land fraction
+STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
+
+# Multiple surface layers
+MULTI_LAYER_STASH = [STASH_TSNOW]
 
 # a list of stash codes we want to actually act on to produce perturbations in this routine:
-STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL]
+STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN]
+
 
 # ------------------------------------
 
@@ -135,13 +153,63 @@ def load_um_fields(filepath):
     :return: data_in (dictionary) correction data
     """
 
+    def get_field_level(field):
+
+        """Get the level that this field is on. If the field is not on a specific level, set it = 1."""
+
+        # soil level
+        if field.lbuser4 in MULTI_SOIL_LEVEL_STASH:
+            level = field.lblev
+
+        # for layer fields, use the layer as the level. If also on pseudo levels, lbuser5 has both layer and
+        # pseduo-level, therefore need to isolate the surface layer.
+        elif field.lbuser4 in MULTI_LAYER_STASH:
+            # This will split up any multi layer stash level from the pseudo-level, if they have been merged.
+            level = field.lbuser5 % 1000  # % finds the remainder and works even if lbuser <= 1000
+
+        # special instance for snow layers. There are two sets of snow layer field masks, and lbuser6 was
+        # set differently for each to tell them apart. Use it as the level to keep them separate.
+        elif field.lbuser4 == STASH_NUM_SNOW_LAYERS:
+            level = field.lbuser6
+
+        # if field isn't on a specific layer, set it equal to 1.
+        else:
+            level = 1
+
+        return level
+
+    def get_field_pseudo_level(field):
+
+        """Get the pseudo-level from the field. If on aggregate tiles, pseudo-level extracted will be 1.
+        """
+
+        # setup pseudo level
+        if field.lbuser4 in MULTI_PSEUDO_LEVEL_STASH:
+            # If field is on multiple layers and pseudo-levels, lbuser5 will contain information on
+            # both, therefore need to extract the pseudo-level.
+            if field.lbuser4 in MULTI_LAYER_STASH:
+                if field.lbuser5 > 1000:
+                    # // finds the quotient or number of times divided
+                    pseudo_level = field.lbuser5 // 1000
+                else:
+                    # if aggregate tiles used, lbuser5 will be the pseudo-level
+                    pseudo_level = field.lbuser5
+                    # normal attribute with pseudo-level on will be 1 if on aggregate tiles
+            else:
+                pseudo_level = field.lbuser5
+        # if tile cannot be on pseudo-levels, simply set it = 1.
+        else:
+            pseudo_level = 1
+
+        return pseudo_level
+
     # set up the returned data structure...
     data_in = {}
-    for stash in STASH_TO_LOAD:
-        if stash in MULTI_LEVEL_STASH:
-            data_in[stash] = {}
-        else:
-            data_in[stash] = []
+    #for stash in STASH_TO_LOAD:
+    #if stash in MULTI_LEVEL_STASH:
+    #data_in[stash] = {}
+    #else:
+    #data_in[stash] = []
 
     # data file to open:
     ff_file_in = mule.load_umfile(filepath)
@@ -149,18 +217,41 @@ def load_um_fields(filepath):
 
     # pull out the fields:
     for field in ff_file_in.fields:
+        # is this a stash to load?
         if field.lbuser4 in STASH_TO_LOAD:
-            if field.lbuser4 in MULTI_LEVEL_STASH:
-                # multi-level fields are a dict, with a list for each level
-                if field.lblev in data_in[field.lbuser4].keys():
-                    data_in[field.lbuser4][field.lblev] = field
-                else:
-                    data_in[field.lbuser4][field.lblev] = field
-            else:
-                # single level fields are a flat list:
-                data_in[field.lbuser4] = field
 
-    return data_in
+            # flag to say "load the data". This is used so if there are STASH constraints saying this
+            # particular field shouldn't be loaded, it can be set to False.
+            load_flag = True
+
+            # If only certain fields are needed for this STASH,
+            if field.lbuser4 in STASH_LEVEL_CONSTRAINTS:
+                # if not the field we are looking for...
+                if field.lbuser5 not in STASH_LEVEL_CONSTRAINTS[field.lbuser4]:
+                    load_flag = False
+
+            # If this field meets all the constraints ...
+            if load_flag is True:
+
+                # Add STASH entry if it doesn't exist yet
+                if field.lbuser4 not in data_in.keys():
+                    data_in[field.lbuser4] = {}
+
+                # Get field level and pseudo-level to help store them in a dictionary
+                # if field doesn't have one of them, it shall be set equal to 1 and used to ensure the number of
+                # nested dictionaries and lists is the same across all the loaded variables.
+                level = get_field_level(field)
+
+                pseudo_level = get_field_pseudo_level(field)
+
+                # load...
+                # load in the fields
+                if level in data_in[field.lbuser4].keys():  # is level already present
+                    data_in[field.lbuser4][level][pseudo_level] = field
+                else:
+                    data_in[field.lbuser4][level] = {pseudo_level: field}
+
+    return data_in, ff_file_in
 
 
 def load_ekf_combine_with_correction(corr_data):
@@ -172,66 +263,66 @@ def load_ekf_combine_with_correction(corr_data):
     :return: soil_centred_pert: (dictionary) combined perturbations of the EKF and correction
     """
 
-    def load_field_data(stash_and_constraints, ff_file, cache=False):
-        """
-        Loads EKF soil data
-
-        :param stash_and_constraints: (dictionary) stash codes and additional constraints to load
-        :param: ff_file: (filepath str) filepath of the data to load
-        :param cache: (bool) To use mule cache functionality to assist loading
-        :return: ff_data: (dictionary) soil data fields from current cycle
-        :return: ff_obj: (object) the UM file read in
-        """
-
-        if isinstance(ff_file, str):
-            ff_obj = mule.load_umfile(ff_file)
-        else:
-            ff_obj = ff_file
-        ff_obj.remove_empty_lookups()
-
-        ff_data = {}
-        for field in ff_obj.fields:
-            # is this stash code we want?
-            if field.lbuser4 in stash_and_constraints.keys():
-                # passes the first filter, some of these fields are needed:
-                if field.lbuser5 == 0:
-                    # not a psudolevel field, so don't test them
-                    fld_needed = True
-                else:
-                    # need to test against pseudo levels:
-                    fld_needed = False
-                    # now check the individual reqeusts to see if any match:
-                    if 'lbuser5' in stash_and_constraints[field.lbuser4]:
-                        fld_needed = field.lbuser5 in stash_and_constraints[field.lbuser4]['lbuser5']
-                    else:
-                        # not constraining on pseudo level (lbuser5)
-                        fld_needed = True
-
-                if fld_needed:
-                    if cache:
-                        # apply the cache, if required:
-                        cacheoperator = CachingOperator()
-                        field = cacheoperator(field)
-                    if field.lbuser5 == 0:
-                        # multi-level fields are a dict, with a list for each level
-                        if field.lbuser4 in MULTI_LEVEL_STASH:
-                            if field.lbuser4 not in ff_data.keys():
-                                ff_data[field.lbuser4] = {}
-                            ff_data[field.lbuser4][field.lblev] = field
-                        else:
-                            # single level fields are a flat list:
-                            ff_data[field.lbuser4] = field
-                    else:
-                        if field.lbuser4 in MULTI_LEVEL_STASH:
-                            raise NotImplementedError('Cannot have multi-level fields with '
-                                                      'psuedo-levels are not in this script yet')
-                        else:
-                            if field.lbuser4 not in ff_data.keys():
-                                ff_data[field.lbuser4] = {}
-                            # now this is like a multi-level field:
-                            ff_data[field.lbuser4][field.lbuser5] = field
-
-        return ff_data, ff_obj
+    # def load_field_data(stash_and_constraints, ff_file, cache=False):
+    #     """
+    #     Loads EKF soil data
+    #
+    #     :param stash_and_constraints: (dictionary) stash codes and additional constraints to load
+    #     :param: ff_file: (filepath str) filepath of the data to load
+    #     :param cache: (bool) To use mule cache functionality to assist loading
+    #     :return: ff_data: (dictionary) soil data fields from current cycle
+    #     :return: ff_obj: (object) the UM file read in
+    #     """
+    #
+    #     if isinstance(ff_file, str):
+    #         ff_obj = mule.load_umfile(ff_file)
+    #     else:
+    #         ff_obj = ff_file
+    #     ff_obj.remove_empty_lookups()
+    #
+    #     ff_data = {}
+    #     for field in ff_obj.fields:
+    #         # is this stash code we want?
+    #         if field.lbuser4 in stash_and_constraints.keys():
+    #             # passes the first filter, some of these fields are needed:
+    #             if field.lbuser5 == 0:
+    #                 # not a psudolevel field, so don't test them
+    #                 fld_needed = True
+    #             else:
+    #                 # need to test against pseudo levels:
+    #                 fld_needed = False
+    #                 # now check the individual reqeusts to see if any match:
+    #                 if 'lbuser5' in stash_and_constraints[field.lbuser4]:
+    #                     fld_needed = field.lbuser5 in stash_and_constraints[field.lbuser4]['lbuser5']
+    #                 else:
+    #                     # not constraining on pseudo level (lbuser5)
+    #                     fld_needed = True
+    #
+    #             if fld_needed:
+    #                 if cache:
+    #                     # apply the cache, if required:
+    #                     cacheoperator = CachingOperator()
+    #                     field = cacheoperator(field)
+    #                 if field.lbuser5 == 0:
+    #                     # multi-level fields are a dict, with a list for each level
+    #                     if field.lbuser4 in MULTI_LEVEL_STASH:
+    #                         if field.lbuser4 not in ff_data.keys():
+    #                             ff_data[field.lbuser4] = {}
+    #                         ff_data[field.lbuser4][field.lblev] = field
+    #                     else:
+    #                         # single level fields are a flat list:
+    #                         ff_data[field.lbuser4] = field
+    #                 else:
+    #                     if field.lbuser4 in MULTI_LEVEL_STASH:
+    #                         raise NotImplementedError('Cannot have multi-level fields with '
+    #                                                   'psuedo-levels are not in this script yet')
+    #                     else:
+    #                         if field.lbuser4 not in ff_data.keys():
+    #                             ff_data[field.lbuser4] = {}
+    #                         # now this is like a multi-level field:
+    #                         ff_data[field.lbuser4][field.lbuser5] = field
+    #
+    #     return ff_data, ff_obj
 
     # STASH codes to load in from the EKF file
     # include all perts first, then update dict with land_sea_mask stash and land fraction
@@ -240,16 +331,21 @@ def load_ekf_combine_with_correction(corr_data):
                        STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}})
 
     # load in the EKF and other
-    soil_fields, smc_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
+    # soil_fields, smc_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
+    soil_fields, smc_ff = load_um_fields(ENS_SOIL_EKF_FILEPATH)
+
 
     # reduce EKF by the correction (now that EKF is done via IAU).
     subber = mule.operators.SubtractFieldsOperator(preserve_mdi=True)
 
-    soil_centred_pert = {stash: {} for stash in STASH_TO_MAKE_PERTS}
+    soil_centred_pert = {}
     for stash in STASH_TO_MAKE_PERTS:
-        for level, corr_l in corr_data[stash].items():
-            ekf_pert_l = soil_fields[stash][level]
-            soil_centred_pert[stash][level] = subber([ekf_pert_l, corr_l])
+        soil_centred_pert[stash] = {}
+        for level in corr_data[stash].keys():
+            soil_centred_pert[stash][level] = {}
+            for pseudo_level, corr_l in corr_data[stash][level].items():
+                ekf_pert_l = soil_fields[stash][level][pseudo_level]
+                soil_centred_pert[stash][level][pseudo_level] = subber([ekf_pert_l, corr_l])
 
     # put land-sea mask in the soil_centred_pert dictionary
     soil_centred_pert[STASH_LAND_SEA_MASK] = corr_data[STASH_LAND_SEA_MASK]
@@ -260,14 +356,15 @@ def load_ekf_combine_with_correction(corr_data):
 def apply_masks_to_perts(mask_data, total_pert):
 
     """
-    Set the perturbations to zero where the masks apply. This includes:
-    1) Snow mask: For any grid cell where snow is present in any ensemble member on any tile
-    2) A COMBINED mask created specifically for each STASH where:
-        2a) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen
-        2b) standard deviation mask: For any grid cell where the absolute perturbations are greater than 1 standard
-        deviation of the original field.
+    # Apply field masking to the combined perturbations (fields applied to in brackets). This includes:
+    # 1) Snow masks:
+    #    1a) Where snow is present in any ensemble member (SMC, TSOIL, TSKIN)
+    #    1b) Where number of snow tiles is different between any of the members for each cell (all pert variables)
+    # 2) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen
+    # 3) Limit the total (perturbation + increment) to not be beyond sensible limits (SURF background error * factor)
+
     STASH code for the combined mask and the perts will match e.g. combined mask for STASH=9, level=1 will be in
-    [mask_data][9][1]. The masks were created in the previous cycle and are reapplied here to also zero the EKF perts.
+    [mask_data][9][1]. The masks were created in the previous cycle and are reapplied here to the EKF increments.
     :param mask_data: (dictionary) contains the mask fields - fields are [0.0, 1.0, bmdi] and will need changing to bool
     :param total_pert: (EKF - correction) perturbations that need to be set to 0.0 where snow is present.
     :return: total_pert: total_pert but now with its data masked appropriately.
@@ -289,7 +386,7 @@ def apply_masks_to_perts(mask_data, total_pert):
 
         return mask
 
-    def apply_mask(field, mask):
+    def apply_mask(field, mask, replacement_value):
 
         """
         Apply the mask to the data
@@ -298,10 +395,6 @@ def apply_masks_to_perts(mask_data, total_pert):
         :return:
         """
 
-        # check mask is an array of booleans and not of floats by checking the first element of the array
-        if mask.flatten()[0].dtype != bool:
-            raise ValueError('Mask for STASH {}, lblev {} needs to contain boolean values, not {}'.format(field.lbuser4, field.lblev, mask.flatten()[0].dtype))
-
         # Extract data and set values to 0.0 where there is ice
         tmp_pert_data = field.get_data()
 
@@ -309,10 +402,10 @@ def apply_masks_to_perts(mask_data, total_pert):
         if DIAGNOSTICS:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
-            print('STASH: {}; lblev: {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, masked))
+            print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, field.lbuser5, masked))
 
         # mask the data
-        tmp_pert_data[mask] = 0.0
+        tmp_pert_data[mask] = replacement_value
 
         # now put that data back into the field:
         array_provider = mule.ArrayDataProvider(tmp_pert_data)
@@ -320,7 +413,7 @@ def apply_masks_to_perts(mask_data, total_pert):
 
         return field
 
-    def apply_snow_mask(mask_data, total_pert):
+    def apply_ice_snow_masks(mask_data, total_pert):
 
         """
         Apply the snow mask to the total perturbation data. A single mask that is applied to all levels.
@@ -329,68 +422,148 @@ def apply_masks_to_perts(mask_data, total_pert):
         :return: total_pert: (dict)
         """
 
-        # Extract out snow mask
-        snow_mask = extract_mask(mask_data[STASH_NUM_SNOW_LAYERS])
-
-        # Loop through perts and mask where appropriate
+        # 1. Number of snow layers differed between ensemble members
+        # Applied to all perturbation variables on each level and pseudo-level
+        print('   Differing number snow layers:')
         for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
+            for level in total_pert[stash]:
+                for pseudo_level in total_pert[stash][level]:
+
+                    # level 1 in <mask_data> is the "any layers differ" mask
+                    snow_mask_diff = extract_mask(mask_data[STASH_NUM_SNOW_LAYERS][1][pseudo_level])
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], snow_mask_diff, 0.0)
+
+        # 2. Number of snow layers differed between ensemble members
+        # 2nd mask is applied to all perturbation variables except TSNOW where it's ok to have snow on the tiles.
+        print('   Any snow layers present:')
+        for stash in STASH_TO_MAKE_PERTS:
+            if stash != STASH_TSNOW:
                 for level in total_pert[stash]:
-                    total_pert[stash][level] = apply_mask(total_pert[stash][level], snow_mask)
-            else:
-                total_pert[stash] = apply_mask(total_pert[stash], snow_mask)
+                    for pseudo_level in total_pert[stash][level]:
+
+                        # level 2 in <mask_data> is the "one or more layers present"
+                        snow_mask_any = extract_mask(mask_data[STASH_NUM_SNOW_LAYERS][2][pseudo_level])
+                        total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], snow_mask_any, 0.0)
+
+        # 3. Apply the land-ice mask
+        # Applied to all perturbation variables on each level and pseudo-level
+        print('   Land-ice:')
+        for stash in STASH_TO_MAKE_PERTS:
+            for level in total_pert[stash]:
+                for pseudo_level in total_pert[stash][level]:
+                    ice_mask = extract_mask(mask_data[STASH_LANDFRAC][1][PSEUDO_LEVEL_LANDICE])
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], ice_mask, 0.0)
 
         return total_pert
 
-    def apply_combined_masks(mask_data, total_pert):
+    def zero_perts_lt_m10degc(mask_data, total_pert):
 
         """
         Extract and apply the combined masks, onto each total perturbation. The combined mask was created in the
         previous cycle and is True where:
-        1) Any grid cell where TSOIL < -10 degC and should be frozen
-        2) Any grid cell where the absolute perturbations are greater than 1 standard deviation of the original field.
+        1) Any grid cell where TSOIL < -10 degC
+
+        Applied to SMC only!
         :param mask_data: (dict)
         :param total_pert:
         :return: total_pert:
         """
 
-        # Loop through perts and masks where appropriate
-        for stash in STASH_TO_MAKE_PERTS:
-            for level in total_pert[stash]:
+        for level in total_pert[STASH_SMC]:
+            for pseudo_level in total_pert[STASH_SMC][level]:
 
                 # Extract out the combined mask (STASH and level specific)
-                comb_mask = extract_mask(mask_data[stash][level])
+                tsoil_mask = extract_mask(mask_data[STASH_TSOIL][level][pseudo_level])
 
-                if stash in MULTI_LEVEL_STASH:
-                    # Apply the mask from each level to the total pert on the same level
-                    total_pert[stash][level] = apply_mask(total_pert[stash][level], comb_mask)
-                else:
-                    # Apply all the masks in turn onto the singular total pert field
-                    total_pert[stash] = apply_mask(total_pert[stash], comb_mask)
+                # Apply the mask from each level to the total pert on the same level
+                total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], tsoil_mask, 0.0)
 
         return total_pert
 
+    def cap_perts_gt_bgerr(mask_data, total_pert):
+
+        """
+        Cap perturbations that are greater than the back ground error in SURF * factor, where factor is also taken
+        from SURF
+
+        Functions for single or multi-level fields
+        """
+
+        # Background errors and factor for pert variables from SURF
+        stash_errors = {STASH_TSOIL: 2.0,  # [K]
+               STASH_SMC: [0.03] + [0.026]*(len(corr_data[STASH_SMC].keys())-1),  # [m3 m-3] All but first soil level is 0.026
+               STASH_TSNOW: 2.0,  # [K]
+               STASH_TSKIN: 2.3}  # [K]
+        err_factor = 3.0  # values are capped beyond (err * err_factor)
+
+        # store the masks
+        mask_max_tol = {}
+
+        # Find where totals are beyond acceptable tolerances (stash_errors * factor)
+        for stash in STASH_TO_MAKE_PERTS:
+            mask_max_tol[stash] = {}
+
+            for level in total_pert[stash]:
+                mask_max_tol[stash][level] = {}
+
+                # accepted tolerance for this stash and level
+                if stash != STASH_SMC:
+                    tolerance = stash_errors[stash] * err_factor
+                else:
+                    tolerance = stash_errors[stash][level] * err_factor
+
+                for pseudo_level, field in total_pert[stash][level].items():
+
+                    field_data = field.get_data()
+
+                    # 1. Find where positive totals are greater than the allowed tolerance
+                    pos_mask = np.logical_and(field_data > tolerance, field_data != field.bmdi)
+
+                    # Apply the mask from each level to the total pert on the same level.
+                    # Cap values to the maximum tolerance instead of zero
+                    total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                            pos_mask, tolerance)
+
+                    # 2. Find where negative totals are greater than the total
+                    neg_mask = np.logical_and(field_data < -tolerance, field_data != field.bmdi)
+
+                    # Apply the mask from each level to the total pert on the same level.
+                    # Cap values to the maximum tolerance instead of zero
+                    total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                            neg_mask, -tolerance)
+
+                    # 3. Combine positive and negative masks together for diagnostic output
+                    # masks should not overlap, therefore their sum should identify:
+                    # a) positive caps (tolerance), b) negative caps (-tolerance), c) no cap (0.0)
+                    mask_max_tol[stash][level][pseudo_level] = (pos_mask * tolerance) - (neg_mask * tolerance)
+
+
+        return total_pert, mask_max_tol
+
     print('Making perturbations:')
 
-    # Apply the snow mask (True where snow was present on any member, on any tile)
+    # 1. Apply the ice and snow masking
     print('Ice and snow masking:')
-    total_pert = apply_snow_mask(mask_data, total_pert)
+    total_pert = apply_ice_snow_masks(mask_data, total_pert)
 
-    # Apply the combined mask (True when TSOIL < -10 degC and absolute pert > 1 standard deviation of original field.
+    # 2. Apply the combined mask (True when TSOIL < -10 degC and absolute pert > 1 standard deviation of original field.
     print('Combined masking (TSOIL < -10degC or abs(pert) > 1 standard deviation of field):')
-    total_pert = apply_combined_masks(mask_data, total_pert)
+    total_pert = zero_perts_lt_m10degc(mask_data, total_pert)
+
+    # 3. Cap the maximum combined perturbation + increment allowed based on SURF background error tolerance * factor
+    # Output the mask (created in this app unlike the other masks) and save for later diagnostics
+    total_pert, mask_max_tol = cap_perts_gt_bgerr(mask_data, total_pert)
 
     # print out additional diagnostics (descriptive statistics of fields)
     if DIAGNOSTICS:
         print('\nPerturbation descriptive statistics:')
         for stash in STASH_TO_MAKE_PERTS:
-            if stash in MULTI_LEVEL_STASH:
-                for (level, pert_field) in total_pert[stash].items():
+            for level in corr_data[stash].keys():
+                for (pseudo_level, pert_field) in corr_data[stash][level].items():
                     data = pert_field.get_data()
-                    data_flat = data[np.where(data != corr_data[stash][level].bmdi)].flatten()
+                    data_flat = data[np.where(data != pert_field.bmdi)].flatten()
                     # print min, max , rms
-                    #print('STASH:' + str(pert_field.lbuser4) + '; ' + 'lblev:' + str(pert_field.lblev)+':')
-                    print('STASH: {}; lblev: {}:'.format(pert_field.lbuser4, pert_field.lblev))
+                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev, pert_field.lbuser5))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
@@ -467,8 +640,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
 if __name__ == '__main__':
 
     """
-    Routine 2 of 2 for applying the ensemble soil moisture content (SMC) correction, to 
-    the EKF perturbation.
+    Routine 2 of 2 for applying the ensemble breeding corrections, to the EKF perturbation.
     
     1) Loads correction data from last cycle (correction = ensemble mean - control field)
     2) Loads EKF data and applies correction (total perturbation = EKF - correction)
@@ -479,7 +651,7 @@ if __name__ == '__main__':
 
     ## Read and process
     # Load the ensemble correction data (ensemble mean - control field, both from previous cycle).
-    corr_data = load_um_fields(ENS_SOIL_CORR_FILEPATH)
+    corr_data, _ = load_um_fields(ENS_SOIL_CORR_FILEPATH)
 
     # If the EKF file exists, read it in and combine with the ensemble correction.
     # NOTE: file will not exist during a fast run cycle
@@ -490,14 +662,14 @@ if __name__ == '__main__':
 
     # Load in soil masks created from the previous cycle (used to mask out EKF perts created in this cycle).
     # File doesn't include land fraction, but its not necessary
-    mask_data = load_um_fields(ENS_SOIL_MASK_FILEPATH)
+    mask_data, _ = load_um_fields(ENS_SOIL_MASK_FILEPATH)
 
-    # Apply field masking to the combined perturbations. This includes:
-    # 1) Snow mask: For any grid cell where snow is present in any ensemble member on any tile
-    # 2) A COMBINED mask created specifically for each STASH where:
-    #     2a) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen
-    #     2b) standard deviation mask: For any grid cell where the absolute perturbations are greater than 1 standard
-    #     deviation of the original field.
+    # Apply field masking to the combined perturbations (fields applied to in brackets). This includes:
+    # 1) Snow masks:
+    #    1a) Where snow is present in any ensemble member (SMC, TSOIL, TSKIN)
+    #    1b) Where number of snow tiles is different between any of the members for each cell (all pert variables)
+    # 2) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen
+    # 3) Limit the total (perturbation + increment) to not be beyond sensible limits (SURF background error * factor)
     total_pert = apply_masks_to_perts(mask_data, total_pert)
 
     ## Save
