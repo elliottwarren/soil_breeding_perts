@@ -476,24 +476,32 @@ def apply_masks_to_perts(mask_data, total_pert):
                 tsoil_mask = extract_mask(mask_data[STASH_TSOIL][level][pseudo_level])
 
                 # Apply the mask from each level to the total pert on the same level
-                total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], tsoil_mask, 0.0)
+                total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[STASH_SMC][level][pseudo_level],
+                                                                        tsoil_mask, 0.0)
 
         return total_pert
 
-    def cap_perts_gt_bgerr(mask_data, total_pert):
+    def cap_perts_gt_bgerr(total_pert):
 
         """
         Cap perturbations that are greater than the back ground error in SURF * factor, where factor is also taken
         from SURF
 
-        Functions for single or multi-level fields
+        Functions for single or multi-level fields. Check fields against the maximum positive and negative limit
+        separately, so any values beyond either limit can then be set to that limit (e.g       . extreme negative values
+        set to the negative limit)
         """
 
         # Background errors and factor for pert variables from SURF
+        # For SMC, all but the first soil level is 0.026
         stash_errors = {STASH_TSOIL: 2.0,  # [K]
-               STASH_SMC: [0.03] + [0.026]*(len(corr_data[STASH_SMC].keys())-1),  # [m3 m-3] All but first soil level is 0.026
-               STASH_TSNOW: 2.0,  # [K]
-               STASH_TSKIN: 2.3}  # [K]
+            STASH_SMC: {level: 0.026 if level > 1 else 0.03 for level in total_pert[STASH_SMC].keys()},  # [m3 m-3]
+            STASH_TSNOW: 2.0,  # [K]
+            STASH_TSKIN: 2.3}  # [K]
+        # include errors for SMC which are  more complicated (first level is different to all others
+        #[f(x) if condition else g(x) for x in sequence]
+
+
         err_factor = 3.0  # values are capped beyond (err * err_factor)
 
         # store the masks
@@ -520,7 +528,7 @@ def apply_masks_to_perts(mask_data, total_pert):
                     pos_mask = np.logical_and(field_data > tolerance, field_data != field.bmdi)
 
                     # Apply the mask from each level to the total pert on the same level.
-                    # Cap values to the maximum tolerance instead of zero
+                    # Cap positive values to the maximum postive tolerance allowed
                     total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
                                                                             pos_mask, tolerance)
 
@@ -528,7 +536,7 @@ def apply_masks_to_perts(mask_data, total_pert):
                     neg_mask = np.logical_and(field_data < -tolerance, field_data != field.bmdi)
 
                     # Apply the mask from each level to the total pert on the same level.
-                    # Cap values to the maximum tolerance instead of zero
+                    # Cap negative values to the maximum negative tolerance allowed
                     total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
                                                                             neg_mask, -tolerance)
 
@@ -552,7 +560,7 @@ def apply_masks_to_perts(mask_data, total_pert):
 
     # 3. Cap the maximum combined perturbation + increment allowed based on SURF background error tolerance * factor
     # Output the mask (created in this app unlike the other masks) and save for later diagnostics
-    total_pert, mask_max_tol = cap_perts_gt_bgerr(mask_data, total_pert)
+    total_pert, mask_max_tol = cap_perts_gt_bgerr(total_pert)
 
     # print out additional diagnostics (descriptive statistics of fields)
     if DIAGNOSTICS:
@@ -569,7 +577,7 @@ def apply_masks_to_perts(mask_data, total_pert):
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
         print('')
 
-    return total_pert
+    return total_pert, mask_max_tol
 
 
 # Save
@@ -583,7 +591,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     include more information in the future.
 
     :param centred_pert: (dictionary) EKF - correction. The increment to apply, to center the ensemble mean
-    :keyword: template_file: (str) template file to cmake a copy and reate a new file from.
+    :keyword: template_file: (str) template file to cmake a copy and create a new file from.
     """
 
     # Ideally use the existing EKF file as a template
@@ -617,17 +625,16 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # add land-sea mask if not present already
     if not out_pert_has_lsm:
         # add it:
-        pert_ff_out.fields.append(centred_pert[STASH_LAND_SEA_MASK])
+        pert_ff_out.fields.append(centred_pert[STASH_LAND_SEA_MASK][1][1])
 
     # Now add in the perturbations:
     # Correct times to ensure validity time matches
     for stash in STASH_TO_MAKE_PERTS:
-        if stash in MULTI_LEVEL_STASH:
-            # write out each level (the order now matters!):
-            for level in sorted(centred_pert[stash]):
-                pert_ff_out.fields.append(centred_pert[stash][level])
-        else:
-            pert_ff_out.fields.append(centred_pert[stash])
+        for level in centred_pert[stash]:
+            for pseudo_level in centred_pert[stash][level]:
+                # write out each level:
+                pert_ff_out.fields.append(centred_pert[stash][level][pseudo_level])
+
 
     # Output to file
     pert_ff_out.to_file(output_pert_file)
@@ -668,9 +675,10 @@ if __name__ == '__main__':
     # 1) Snow masks:
     #    1a) Where snow is present in any ensemble member (SMC, TSOIL, TSKIN)
     #    1b) Where number of snow tiles is different between any of the members for each cell (all pert variables)
-    # 2) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen
-    # 3) Limit the total (perturbation + increment) to not be beyond sensible limits (SURF background error * factor)
-    total_pert = apply_masks_to_perts(mask_data, total_pert)
+    # 2) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen (SMC)
+    # 3) Limit the total (perturbation + increment) to not be beyond sensible limits (SURF background error * factor;
+    #       all pert variables)
+    total_pert, mask_max_tol = apply_masks_to_perts(mask_data, total_pert)
 
     ## Save
     # Save total perturbations in a new perturbation file
