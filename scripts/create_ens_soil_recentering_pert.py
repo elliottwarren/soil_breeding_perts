@@ -50,7 +50,7 @@ if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
+    # ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
@@ -61,7 +61,7 @@ CONTROL_MEMBER = 0
 
 # conversions to type:
 NUM_PERT_MEMBERS = int(NUM_PERT_MEMBERS)
-MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS+1)
+MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS + 1)
 
 # ------------------------------------
 
@@ -77,7 +77,6 @@ STASH_SNOW_AMNT = 23  # can be overwritten by other programs therefore not the i
 STASH_NUM_SNOW_LAYERS = 380  # preferred alternative to STASH_SNOW_AMNT that does not get overwritten
 # pseudo level for land-ice mask:
 PSEUDO_LEVEL_LANDICE = 9
-
 
 # STASH codes to load.
 # Includes single and multi-level codes
@@ -102,11 +101,11 @@ STASH_LEVEL_CONSTRAINTS = {STASH_LANDFRAC: [PSEUDO_LEVEL_LANDICE]}
 # Multiple surface layers
 MULTI_LAYER_STASH = [STASH_TSNOW]
 
+
 # ------------------------------------------
 
 
 class CachingOperator(mule.DataOperator):
-
     """
     Operator which caches the data returned by another
     field object (it does no calculations of its own.
@@ -141,7 +140,6 @@ class CachingOperator(mule.DataOperator):
 
 
 def mem_to_str(member):
-
     """
     Converts an ensemble member input number into the filename string used to locate files
     :param member: (int or char)
@@ -165,13 +163,11 @@ def mem_to_str(member):
 
 
 def engl_cycle_dump(member):
-
     """ locates hour start dump from the current cycle for an ensemble member (e.g. t+3)"""
     return '{0}/engl_um/engl_um_{1}/{2}'.format(ROSE_DATAC, mem_to_str(member), ENS_SOIL_DUMP_FILE)
 
 
 def load_engl_member_data(member_list):
-
     """
     Loads in input data from ensemble run members. This can be from a large number of files, and sorted into a dict
     structure by field, level to produce a list containing the data for ensemble members. Can read in data from a single
@@ -261,15 +257,13 @@ def load_engl_member_data(member_list):
 
         # Test whether the read in list length is equal to the number of expected members.
         if n_mem != list_length:
-
             # level detail string (which stash, level and/or pseudo-level are we on?)
             level_detail = '; '.join(['{} = {}'.format(key, item) for key, item in kwargs.items()])
 
             raise ValueError('{} fields found in ensemble for {}, but number of members expected is {} is expected'.
-                format(list_length, level_detail, n_mem))
+                             format(list_length, level_detail, n_mem))
 
         return
-
 
     # ensure member_list is actually an iterable list of strings, if not already.
     if isinstance(member_list, (float, int, str)):
@@ -279,11 +273,6 @@ def load_engl_member_data(member_list):
     ens_data = {}
     for stash in STASH_TO_LOAD:
         ens_data[stash] = {}
-        # if stash in MULTI_LEVEL_STASH or stash in STASH_LEVEL_CONSTRAINTS or stash in MULTI_PSEUDO_LEVEL_STASH\
-        #         or stash in MULTI_LAYER_STASH:
-        #     ens_data[stash] = {}
-        # else:
-        #     ens_data[stash] = {}
 
     # and the fieldsfile objects, which we can use as templates later on:
     ens_ff_files = []
@@ -343,30 +332,15 @@ def load_engl_member_data(member_list):
         for level in ens_data[stash]:
             for pseudo_level in ens_data[stash][level]:
                 check_list_length(ens_data[stash][level][pseudo_level], member_list,
-                                      stash=stash, level=level, pseudo_level=pseudo_level)
-
-
-    # for stash in STASH_TO_LOAD:
-    #     if type(ens_data[stash]) is not dict:
-    #         check_list_length(ens_data[stash], member_list, stash=stash)
-    #     else:
-    #         # Model level or surface layer
-    #         for level in ens_data[stash]:
-    #             if type(ens_data[stash][level]) is not dict:
-    #                 check_list_length(ens_data[stash][level], member_list, stash=stash, level=level)
-    #             else:
-    #                 # Pseudo-level
-    #                 for pseudo_level in ens_data[stash][level]:
-    #                     check_list_length(ens_data[stash][level][pseudo_level], member_list,
-    #                                       stash=stash, level=level, pseudo_level=pseudo_level)
+                                  stash=stash, level=level, pseudo_level=pseudo_level)
 
     return ens_data, ens_ff_files
+
 
 # processing
 
 
 def mean_ens_data(in_data):
-
     """
     Create ensemble mean of the soil moisture content field
 
@@ -411,7 +385,6 @@ def mean_ens_data(in_data):
 
 
 def mean_minus_control(control_data, mean_data):
-
     """
     Subtracts the control field from the ensemble mean, for all required fields, to produce a correction. This
     correction can be used in the next cycle to adjust each of the ensemble member's starting points, effectively
@@ -432,7 +405,6 @@ def mean_minus_control(control_data, mean_data):
         for level in control_data[stash]:
             corrction_data[stash][level] = {}
             for pseudo_level in control_data[stash][level]:
-
                 # ensemble mean field - control field
                 corrction_data[stash][level][pseudo_level] = \
                     subber([mean_data[stash][level][pseudo_level], control_data[stash][level][pseudo_level][0]])
@@ -448,7 +420,6 @@ def mean_minus_control(control_data, mean_data):
 
 
 def pert_check_correction(corr_data, ens, ctrl):
-
     """
     Set perturbations to be 0.0:
     1. Over ice or where snow was present on any layer, in any of the members, including the
@@ -478,7 +449,8 @@ def pert_check_correction(corr_data, ens, ctrl):
         if DIAGNOSTICS:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
-            print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of perturbation values masked: {}'.format(field.lbuser4, field.lblev, field.lbuser5, masked))
+            print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of values masked: {}'.format(
+                field.lbuser4, field.lblev, field.lbuser5, masked))
 
         # mask the data
         tmp_pert_data[mask] = replacement_value
@@ -593,8 +565,9 @@ def pert_check_correction(corr_data, ens, ctrl):
 
         # 2. Combine ens and ctrl snow field dict into a single dict (order is irrelevant) snow_fields = {
         # pseudo_level: [list of snow fields for each level equal to number of ensemble plus ctrl member]}
-        snow_fields = {pseudo_level: ens[STASH_NUM_SNOW_LAYERS][1][pseudo_level] + ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level]
-                       for pseudo_level in ens[STASH_NUM_SNOW_LAYERS][1].keys()}
+        snow_fields = {
+            pseudo_level: ens[STASH_NUM_SNOW_LAYERS][1][pseudo_level] + ctrl[STASH_NUM_SNOW_LAYERS][1][pseudo_level]
+            for pseudo_level in ens[STASH_NUM_SNOW_LAYERS][1].keys()}
 
         # 3. Masks for whether the number of snow layers differed across the members, on each pseudo-level
         snow_diff_masks, comb_snow_diff_mask = num_snow_layers_differ_mask(snow_fields)
@@ -645,7 +618,6 @@ def pert_check_correction(corr_data, ens, ctrl):
         tsoil_masks = {}
 
         for (level, tsoil_fields_level) in tsoil_fields.items():
-
             # Create TSOIL mask where True is data below -10 degC (263.15 K)
             tsoil_masks_level = [np.logical_and(tsoil_field_i.get_data() < 263.15,
                                                 tsoil_field_i.get_data() != tsoil_field_i.bmdi)
@@ -743,7 +715,6 @@ def pert_check_correction(corr_data, ens, ctrl):
 
         return mask_fields
 
-
     print('Making perturbations:')
     # 1. Zero perturbation where for any ensemble member, on any tile there is
     #    1) Land ice
@@ -765,10 +736,11 @@ def pert_check_correction(corr_data, ens, ctrl):
                     data = pert_field.get_data()
                     data_flat = data[np.where(data != pert_field.bmdi)].flatten()
                     # print min, max , rms
-                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev, pert_field.lbuser5))
+                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev,
+                                                                      pert_field.lbuser5))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
-                    print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
+                    print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat ** 2))))
             print('')
 
     # 3. Put masks into fields for later saving, with a valid land-sea mask
@@ -780,11 +752,11 @@ def pert_check_correction(corr_data, ens, ctrl):
 
     return corr_data, mask_fields
 
+
 # saving functions
 
 
 def save_fields_file(data, in_files, filename):
-
     """
     Function to save fields into a new fields file. Uses an existing fields file within <in_files> to create a template.
 
@@ -797,9 +769,9 @@ def save_fields_file(data, in_files, filename):
     # Ensure SMC directory exists to save into
     if os.path.isdir(ENS_PERT_DIR) is False:
         # use mkdir -p (recursive dir creation) as equivalent pythonic functions vary between Python2 and Python3
-        os.system('mkdir -p '+ENS_PERT_DIR)
+        os.system('mkdir -p ' + ENS_PERT_DIR)
 
-    ens_filepath = ENS_PERT_DIR+'/'+filename
+    ens_filepath = ENS_PERT_DIR + '/' + filename
     # open a FieldFile object:
     ens_ff = in_files[0].copy(include_fields=False)
 
@@ -818,13 +790,12 @@ def save_fields_file(data, in_files, filename):
     # save
     ens_ff.to_file(ens_filepath)
 
-    print('Saved: '+ens_filepath)
+    print('Saved: ' + ens_filepath)
 
     return
 
 
 if __name__ == '__main__':
-
     """Routine 1 of 2 for creating the ensemble soil moisture content (SMC), soil temperature (TSOIL), 
     skin temperature (TSKIN), and snow temperature (TSNOW) perturbations correction. 
     
