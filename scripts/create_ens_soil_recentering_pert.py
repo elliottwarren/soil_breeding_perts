@@ -756,10 +756,6 @@ def pert_check_correction(corr_data, ens, ctrl):
     print('TSOIL < -10 degC masking:')
     corr_data, tsoil_masks = zero_perts_lt_m10degc(corr_data, ens, ctrl)
 
-    # 3. Zero perturbations where absolute pert values are larger than 1 standard deviation of the original field.
-    #print('abs(pert) > 1 standard deviation of field masking:')
-    #corr_data, stdev_masks = cap_perts_gt_bgerr(corr_data, ens, ctrl)
-
     # print out additional diagnostics (descriptive statistics of fields)
     if DIAGNOSTICS:
         print('\nPerturbation descriptive statistics:')
@@ -773,9 +769,9 @@ def pert_check_correction(corr_data, ens, ctrl):
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
                     print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
-        print('')
+            print('')
 
-    # 4. Put masks into fields for later saving, with a valid land-sea mask
+    # 3. Put masks into fields for later saving, with a valid land-sea mask
     #   1) Land-ice field (used to make mask)
     #   2) Number of snow layers present differed between the members
     #   3) Snow present on any layer
@@ -790,17 +786,15 @@ def pert_check_correction(corr_data, ens, ctrl):
 def save_fields_file(data, in_files, filename):
 
     """
-    Additional function to save fields calculated. Intended for saving the ensemble mean, and the correction fields
-    separately.
+    Function to save fields into a new fields file. Uses an existing fields file within <in_files> to create a template.
 
     :param data: (dictionary): fields needing to be saved
-    :param in_files: (list): list of file files for all member's used in creating [data]. Used to create a template.
-    :param stash_list (list): list of stash numbers to save e.g. [9] for soil moisture
-    :param filename (str): name of the file to save (not the full path)
+    :param in_files: (list): list of field files, and here used to create a template for our save file.
+    :param filename: (str) name of the file to save (not the full path)
     :return:
     """
 
-    # Ensure smc directory exists to save into
+    # Ensure SMC directory exists to save into
     if os.path.isdir(ENS_PERT_DIR) is False:
         # use mkdir -p (recursive dir creation) as equivalent pythonic functions vary between Python2 and Python3
         os.system('mkdir -p '+ENS_PERT_DIR)
@@ -831,9 +825,8 @@ def save_fields_file(data, in_files, filename):
 
 if __name__ == '__main__':
 
-    """
-    Routine 1 of 2 for creating the ensemble soil moisture content (SMC) perturbation 
-    correction.
+    """Routine 1 of 2 for creating the ensemble soil moisture content (SMC), soil temperature (TSOIL), 
+    skin temperature (TSKIN), and snow temperature (TSNOW) perturbations correction. 
     
     1) Loads in data
     2) Produces the mean of the input fields
@@ -841,13 +834,14 @@ if __name__ == '__main__':
     4) Checks correction fields
     5) Save ensemble mean
     6) Saves the correction
+    7) Saves masks for use in the second routine, to mask EKF increments
     """
 
     ## Read
-    # load the SMC, TSOIL, and other input data for all members:
+    # load SMC, TSOIL, TSKIN and TSNOW, as well as all other required input data for all members:
     ens_data, ens_ff_files = load_engl_member_data(MEMBERS_PERT_INTS)
 
-    # load the SMC, TSOIL, and other input data for the control member only:
+    # load the SMC, TSOIL, TSKIN and TSNOW as well as all other required input data for the control member only:
     ctrl_data, ctrl_ff_files = load_engl_member_data(CONTROL_MEMBER)
 
     ## Process
@@ -857,20 +851,20 @@ if __name__ == '__main__':
     # create the soil recentering correction (ensemble mean - control).
     ens_correction = mean_minus_control(ctrl_data, ens_mean)
 
-    # Carry out checks and corrections to ensure the perts are phystically sensible:
-    # 1. Set pert values to 0 where ice or snow is present on land, in any member (including control)
-    # the snow field used is appended to the ens_correction dictionary for use in the next cycle.
-    # 2. Set pert values to 0 where TSOIL < -10 degC
-    # 3. Set pert values to 0 where absolute perts are more than 1 standard deviations of the original field.
+    # Carry out checks and corrections to ensure the perts are physically sensible:
+    # Set pert values to 0 where:
+    # 1. Ice or snow is present on land, in any member (all pert STASH)
+    # 2. The number of snow layers differs between any of the ensemble members (all pert STASH)
+    # 3. The number of snow layers is greater than 0 (all pert STASH except TSNOW)
+    # 4. Where TSOIL < -10 degC (SMC only)
     # Export all masks for saving
     ens_correction, mask_fields = pert_check_correction(ens_correction, ens_data, ctrl_data)
 
     ## Save
-    # save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
-    # includes the composite boolean snow field map produced in zero_land_ice_snow_perts()
+    # Save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
     save_fields_file(ens_mean, ens_ff_files, 'engl_soil_mean')
 
-    # save the correction
+    # Save the correction
     # use the control ensemble file as a file template for saving
     save_fields_file(ens_correction, ctrl_ff_files, 'engl_soil_correction')
 
