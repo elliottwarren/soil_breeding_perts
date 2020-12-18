@@ -854,25 +854,102 @@ def calc_lons_lats(fields, fields_data):
     return lat, lon, lat_corners, lon_corners
 
 
-def diag_plot(field_array, lon_corners, lat_corners, data, title, savename):
 
-    """Diagnostic plot"""
+def diagnostic_plotting(ens_data):
+    """
+    Ensemble plotting diagnostics. Currently plots standard deviation and range (max-min_ of ensemble members.
+    :param ens_data:
+    :return:
+    """
 
-    fig = plt.figure(figsize=(8, 5))
-    plt.pcolormesh(lon_corners, lat_corners, data)
+    import matplotlib.pyplot as plt
 
-    # prettify
-    plt.suptitle(title)
-    plt.xlabel('longitude [degrees]')
-    plt.ylabel('latitude [degrees]')
-    plt.colorbar()
+    def diag_plot(lon_corners, lat_corners, data, title, savename):
 
-    # save
-    plt.savefig(savename)
-    plt.close(fig)
+        """Diagnostic plot"""
+
+        fig = plt.figure(figsize=(8, 5))
+        plt.pcolormesh(lon_corners, lat_corners, data)
+
+        # prettify
+        plt.suptitle(title)
+        plt.xlabel('longitude [degrees]')
+        plt.ylabel('latitude [degrees]')
+        plt.colorbar()
+
+        # save
+        plt.savefig(savename)
+        plt.close(fig)
+
+        return
+
+    # Where to save plots. Create save location if not there already
+    savedir = ENS_PERT_DIR + '/diagnostic_plots'
+    ensure_dir(savedir)
+
+    # Extract land sea mask and find sea points (sea = 0, land = 1) - needed for field calculations
+    land_sea_field = ens_data[30][1][1][0]
+    sea_idx = np.where(land_sea_field.get_data() == 0)
+
+    # subdirectory for plots
+    ensure_dir(savedir + '/standard_deviation')
+    ensure_dir(savedir + '/range')
+
+    for stash in STASH_TO_MAKE_PERTS:
+
+        print('plotting for STASH {}:'.format(stash))
+
+        for level in ens_data[stash]:
+            for pseudo_level in ens_data[stash][level]:
+
+                # Extract out data and nan sea points
+                fields = ens_data[stash][level][pseudo_level]
+                fields_data = []
+                for field_i in fields:
+                    data = field_i.get_data()
+                    data[sea_idx] = np.nan
+                    fields_data.append(data)
+
+                # Stacking done such [:, :, n] = fields_data[n], where n is ensemble member n+1
+                # e.g. index 0 is ensemble member 1
+                field_array = np.stack(fields_data, axis=2)
+
+                # Longitude and latitude
+                # Following code works on regular grids only. Needs expanding for non-regular grids
+                _, _, lat_corners, lon_corners = calc_lons_lats(fields, fields_data)
+
+                # 1. Standard deviation plot
+                # Calculate standard deviation of all the fields
+                stdev = np.nanstd(field_array, axis=2)
+
+                title = 'Standard deviation of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
+                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
+
+                savename = savedir + '/standard_deviation/stash_{}_level_{}_pseudol_{}.png'.format(
+                    stash, level, pseudo_level)
+
+                diag_plot(lon_corners, lat_corners, stdev, title, savename)
+
+                # 2. Range (max-min) ensemble plot
+                # Define array to fill with the ranges
+                range_array = np.empty((field_array.shape[0], field_array.shape[1]))
+                range_array[:] = np.nan
+
+                # calculate range for each cell
+                for i in np.arange(field_array.shape[0]):
+                    for j in np.arange(field_array.shape[1]):
+                        range_array[i, j] = np.max(field_array[i, j, :]) - np.min(field_array[i, j, :])
+
+                # plot range
+                title = 'Range (max-min) of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
+                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
+
+                savename = savedir + '/range/stash_{}_level_{}_pseudol_{}.png'.format(
+                    stash, level, pseudo_level)
+
+                diag_plot(lon_corners, lat_corners, range_array, title, savename)
 
     return
-
 
 if __name__ == '__main__':
 
@@ -929,73 +1006,9 @@ if __name__ == '__main__':
 
     ## Diagnostic plotting
     if GEN_MODE >= 20:
+        diagnostic_plotting(ens_data)
 
-        import matplotlib.pyplot as plt
 
-        # Where to save plots. Create save location if not there already
-        savedir = ENS_PERT_DIR+'/diagnostic_plots'
-        ensure_dir(savedir)
-
-        # Extract land sea mask and find sea points (sea = 0, land = 1) - needed for field calculations
-        land_sea_field = ens_data[30][1][1][0]
-        sea_idx = np.where(land_sea_field.get_data() == 0)
-
-        # subdirectory for plots
-        ensure_dir(savedir + '/standard_deviation')
-        ensure_dir(savedir + '/range')
-
-        # 1. Standard deviation of ens members used
-        for stash in STASH_TO_MAKE_PERTS:
-
-            for level in ens_data[stash]:
-                for pseudo_level in ens_data[stash][level]:
-
-                    # Extract out data and nan sea points
-                    fields = ens_data[stash][level][pseudo_level]
-                    fields_data = []
-                    for field_i in fields:
-                        data = field_i.get_data()
-                        data[sea_idx] = np.nan
-                        fields_data.append(data)
-
-                    # Stacking done such [:, :, n] = fields_data[n], where n is ensemble member n+1
-                    # e.g. index 0 is ensemble member 1
-                    field_array = np.stack(fields_data, axis=2)
-
-                    # Longitude and latitude
-                    # Following code works on regular grids only. Needs expanding for non-regular grids
-                    _, _, lat_corners, lon_corners = calc_lons_lats(fields, fields_data)
-
-                    # 1. Standard deviation plot
-                    # Calculate standard deviation of all the fields
-                    stdev = np.nanstd(field_array, axis=2)
-
-                    title = 'Standard deviation of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
-                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
-
-                    savename = savedir + '/standard_deviation/stash_{}_level_{}_pseudol_{}.png'.format(
-                        stash, level, pseudo_level)
-
-                    diag_plot(field_array, lon_corners, lat_corners, stdev, title, savename)
-
-                    # 2. Range (max-min) ensemble plot
-                    # Define array to fill with the ranges
-                    range_array = np.empty((field_array.shape[0], field_array.shape[1]))
-                    range_array[:] = np.nan
-
-                    # calculate range for each cell
-                    for i in np.arange(field_array.shape[0]):
-                        for j in np.arange(field_array.shape[1]):
-                            range_array[i, j] = np.max(field_array[i, j, :]) - np.min(field_array[i, j, :])
-
-                    # plot range
-                    title = 'Range (max-min) of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
-                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
-
-                    savename = savedir + '/range/stash_{}_level_{}_pseudol_{}.png'.format(
-                        stash, level, pseudo_level)
-
-                    diag_plot(field_array, lon_corners, lat_corners, range_array, title, savename)
 
 
     exit(0)
