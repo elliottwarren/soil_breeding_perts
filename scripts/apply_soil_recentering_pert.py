@@ -44,6 +44,7 @@ ENS_SOIL_MASK_FILEPATH = os.getenv('ENS_SOIL_MASK_FILEPATH')
 # <GEN_MODE>:
 #  10 = Masking and perturbation statistics
 GEN_MODE = os.getenv('GEN_MODE')
+GEN_MODE = int(GEN_MODE)
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
