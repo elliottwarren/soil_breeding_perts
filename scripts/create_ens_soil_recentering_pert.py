@@ -47,6 +47,7 @@ ENS_SOIL_DUMP_FILE = os.getenv('ENS_SOIL_DUMP_FILE')
 #  10 = Masking and perturbation statistics
 #  20 = Plots
 GEN_MODE = os.getenv('GEN_MODE')
+GEN_MODE = int(GEN_MODE)
 
 if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
