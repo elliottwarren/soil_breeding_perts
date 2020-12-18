@@ -42,19 +42,21 @@ ENS_PERT_DIR = os.getenv('ENS_PERT_DIR')
 # filename of dump with soil variables in that will be used for members (not the full filepath)
 ENS_SOIL_DUMP_FILE = os.getenv('ENS_SOIL_DUMP_FILE')
 
-# Diagnostics - True = save ensemble mean for analysis
-# Set False for routine runs
-DIAGNOSTICS = True
+# Diagnostics level. Higher the level, he more diagnostic output is produced e.g. 20 also produces the output form 10
+# <GEN_MODE>:
+#  10 = Masking and perturbation statistics
+#  20 = Plots
+GEN_MODE = os.getenv('GEN_MODE')
 
 if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
-    # ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
+    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
-    DIAGNOSTICS = True
+    GEN_MODE = 20
 
 # control member number (can be 0 or 000)
 CONTROL_MEMBER = 0
@@ -446,7 +448,7 @@ def pert_check_correction(corr_data, ens, ctrl):
         tmp_pert_data = field.get_data()
 
         # Print how many values will be masked that have not been already.
-        if DIAGNOSTICS:
+        if GEN_MODE >= 10:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
             print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of values masked: {}'.format(
@@ -728,7 +730,7 @@ def pert_check_correction(corr_data, ens, ctrl):
     corr_data, tsoil_masks = zero_perts_lt_m10degc(corr_data, ens, ctrl)
 
     # print out additional diagnostics (descriptive statistics of fields)
-    if DIAGNOSTICS:
+    if GEN_MODE >= 10:
         print('\nPerturbation descriptive statistics:')
         for stash in STASH_TO_MAKE_PERTS:
             for level in corr_data[stash].keys():
@@ -795,7 +797,85 @@ def save_fields_file(data, in_files, filename):
     return
 
 
+# Diagnostics, including plotting
+
+
+def ensure_dir(directory):
+
+    """Ensure directory exists. Create it if it's not there already"""
+
+    if not os.path.exists(directory):
+        os.system('mkdir -p ' + directory)
+
+    return
+
+
+def calc_lons_lats(fields, fields_data):
+    """
+    Calculate the latitude and longitude cell center and corner positions
+    :param fields:
+    :param fields_data:
+    :return: lat:
+    :return lon:
+    :return lat_corners:
+    :return lon_corners:
+    """
+
+    # Longitude and latitude
+    # Following code works on regular grids only. Needs expanding for non-regular grids
+    if fields[0].lbcode == 1:  # regular lon/lat grid
+        lat_0 = fields[0].bzy  # first lat point
+        lat_spacing = fields[0].bdy  # lat spacing
+        lat_len = fields_data[0].shape[0]  # number of rows
+        lon_0 = fields[0].bzx
+        lon_spacing = fields[0].bdx
+        lon_len = fields_data[0].shape[1]
+
+        # Recreate the lon lat vectors (checked against xconv output)
+        # Center coordinates of each cell
+        lat = ((np.arange(lat_len) + 1) * lat_spacing) + lat_0
+        lon = ((np.arange(lon_len) + 1) * lon_spacing) + lon_0
+
+        # Corner coords of each cell (starting with bottom left, needed for plt.pcolormesh)
+        lat_corners = np.append(lat - (0.5 * lat_spacing), lat[-1] + (0.5 * lat_spacing))
+        lon_corners = np.append(lon - (0.5 * lon_spacing), lon[-1] + (0.5 * lon_spacing))
+
+    else:
+        print('Non-regular grid plotting not yet available - longitude and latitude will simply be index '
+              'position')
+
+        lat = np.arange(fields_data[0].shape[0])
+        lon = np.arange(fields_data[0].shape[1])
+
+        lat_corners = np.arange(fields_data[0].shape[0]+1)
+        lon_corners = np.arange(fields_data[0].shape[1]+1)
+
+
+    return lat, lon, lat_corners, lon_corners
+
+
+def diag_plot(field_array, lon_corners, lat_corners, data, title, savename):
+
+    """Diagnostic plot"""
+
+    fig = plt.figure(figsize=(8, 5))
+    plt.pcolormesh(lon_corners, lat_corners, data)
+
+    # prettify
+    plt.suptitle(title)
+    plt.xlabel('longitude [degrees]')
+    plt.ylabel('latitude [degrees]')
+    plt.colorbar()
+
+    # save
+    plt.savefig(savename)
+    plt.close(fig)
+
+    return
+
+
 if __name__ == '__main__':
+
     """Routine 1 of 2 for creating the ensemble soil moisture content (SMC), soil temperature (TSOIL), 
     skin temperature (TSKIN), and snow temperature (TSNOW) perturbations correction. 
     
@@ -806,6 +886,7 @@ if __name__ == '__main__':
     5) Save ensemble mean
     6) Saves the correction
     7) Saves masks for use in the second routine, to mask EKF increments
+    8) If GEN_MODE >= 20: Diagnostic plotting
     """
 
     ## Read
@@ -821,6 +902,9 @@ if __name__ == '__main__':
 
     # create the soil recentering correction (ensemble mean - control).
     ens_correction = mean_minus_control(ctrl_data, ens_mean)
+
+    # TEST: Save the ensemble mean used in making perturbations (mean(all_members_of_same_cycle))
+    #save_fields_file(ens_correction, ens_ff_files, 'engl_soil_corr_pre_QAQC')
 
     # Carry out checks and corrections to ensure the perts are physically sensible:
     # Set pert values to 0 where:
@@ -842,5 +926,76 @@ if __name__ == '__main__':
     # save masks
     # use the control ensemble file as a file template for saving
     save_fields_file(mask_fields, ctrl_ff_files, 'engl_soil_correction_masks')
+
+    ## Diagnostic plotting
+    if GEN_MODE >= 20:
+
+        import matplotlib.pyplot as plt
+
+        # Where to save plots. Create save location if not there already
+        savedir = ENS_PERT_DIR+'/diagnostic_plots'
+        ensure_dir(savedir)
+
+        # Extract land sea mask and find sea points (sea = 0, land = 1) - needed for field calculations
+        land_sea_field = ens_data[30][1][1][0]
+        sea_idx = np.where(land_sea_field.get_data() == 0)
+
+        # subdirectory for plots
+        ensure_dir(savedir + '/standard_deviation')
+        ensure_dir(savedir + '/range')
+
+        # 1. Standard deviation of ens members used
+        for stash in STASH_TO_MAKE_PERTS:
+
+            for level in ens_data[stash]:
+                for pseudo_level in ens_data[stash][level]:
+
+                    # Extract out data and nan sea points
+                    fields = ens_data[stash][level][pseudo_level]
+                    fields_data = []
+                    for field_i in fields:
+                        data = field_i.get_data()
+                        data[sea_idx] = np.nan
+                        fields_data.append(data)
+
+                    # Stacking done such [:, :, n] = fields_data[n], where n is ensemble member n+1
+                    # e.g. index 0 is ensemble member 1
+                    field_array = np.stack(fields_data, axis=2)
+
+                    # Longitude and latitude
+                    # Following code works on regular grids only. Needs expanding for non-regular grids
+                    _, _, lat_corners, lon_corners = calc_lons_lats(fields, fields_data)
+
+                    # 1. Standard deviation plot
+                    # Calculate standard deviation of all the fields
+                    stdev = np.nanstd(field_array, axis=2)
+
+                    title = 'Standard deviation of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
+                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
+
+                    savename = savedir + '/standard_deviation/stash_{}_level_{}_pseudol_{}.png'.format(
+                        stash, level, pseudo_level)
+
+                    diag_plot(field_array, lon_corners, lat_corners, stdev, title, savename)
+
+                    # 2. Range (max-min) ensemble plot
+                    # Define array to fill with the ranges
+                    range_array = np.empty((field_array.shape[0], field_array.shape[1]))
+                    range_array[:] = np.nan
+
+                    # calculate range for each cell
+                    for i in np.arange(field_array.shape[0]):
+                        for j in np.arange(field_array.shape[1]):
+                            range_array[i, j] = np.max(field_array[i, j, :]) - np.min(field_array[i, j, :])
+
+                    # plot range
+                    title = 'Range (max-min) of ensemble members ({})\n'.format(NUM_PERT_MEMBERS) + \
+                        'STASH: {}; level: {}; pseudo-level {}'.format(stash, level, pseudo_level)
+
+                    savename = savedir + '/range/stash_{}_level_{}_pseudol_{}.png'.format(
+                        stash, level, pseudo_level)
+
+                    diag_plot(field_array, lon_corners, lat_corners, range_array, title, savename)
+
 
     exit(0)
