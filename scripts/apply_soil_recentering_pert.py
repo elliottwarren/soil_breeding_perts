@@ -40,20 +40,22 @@ ENS_SOIL_EKF_FILEPATH = os.getenv('ENS_SOIL_EKF_FILEPATH')
 # filepath with soil masks to mask out EKF + correction perts in unsuitable areas (e.g. ice is present)
 ENS_SOIL_MASK_FILEPATH = os.getenv('ENS_SOIL_MASK_FILEPATH')
 
-# Diagnostic information and saving
-DIAGNOSTICS = True
+# Diagnostics level. Higher the level, he more diagnostic output is produced e.g. 20 also produces the output form 10
+# <GEN_MODE>:
+#  10 = Masking and perturbation statistics
+GEN_MODE = os.getenv('GEN_MODE')
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
-    #ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1-tile scheme
-    #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'  # 1-tile scheme
+    # ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1-tile scheme
+    # ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T1200Z'  # 1-tile scheme
     ROSE_DATACPT6H = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9-tile scheme
     ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T1200Z'  # 9-tile scheme
     ENS_MEMBER = '1'
-    ENS_SOIL_CORR_FILEPATH = ROSE_DATACPT6H +'/engl_smc/engl_soil_correction'
-    ENS_SOIL_EKF_FILEPATH = ROSE_DATAC+'/engl_smc/engl_surf_inc' # control member ETKF stochastic perts
-    ENS_SOIL_MASK_FILEPATH = ROSE_DATACPT6H +'/engl_smc/engl_soil_correction_masks'
-    DIAGNOSTICS = True
+    ENS_SOIL_CORR_FILEPATH = ROSE_DATACPT6H + '/engl_smc/engl_soil_correction'  # correction to recenter ensemble
+    ENS_SOIL_EKF_FILEPATH = ROSE_DATAC + '/engl_smc/engl_surf_inc'  # control member ETKF incs
+    ENS_SOIL_MASK_FILEPATH = ROSE_DATACPT6H + '/engl_smc/engl_soil_correction_masks'
+    GEN_MODE = 10
 
 # ------------------------------------
 
@@ -100,7 +102,6 @@ STASH_TO_MAKE_PERTS = [STASH_SMC, STASH_TSOIL, STASH_TSNOW, STASH_TSKIN]
 
 
 class CachingOperator(mule.DataOperator):
-
     """
     Operator which caches the data returned by another
     field object (it does no calculations of its own.
@@ -139,7 +140,6 @@ class CachingOperator(mule.DataOperator):
 
 
 def load_um_fields(filepath):
-
     """
     Loads in UM field data. Sorted into a dict structure  by field
 
@@ -247,7 +247,6 @@ def load_um_fields(filepath):
 
 
 def load_ekf_combine_with_correction(corr_data):
-
     """
     Load in EFK soil perturbations and take away the correction needed to centre the overall ensemble mean for this
     cycle
@@ -260,7 +259,7 @@ def load_ekf_combine_with_correction(corr_data):
     # include all perts first, then update dict with land_sea_mask stash and land fraction
     stash_from_dump = {stash: None for stash in STASH_TO_MAKE_PERTS}
     stash_from_dump.update({STASH_LAND_SEA_MASK: None,
-                       STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}})
+                            STASH_LANDFRAC: {'lbuser5': [PSEUDO_LEVEL_LANDICE]}})
 
     # load in the EKF and other
     # soil_fields, smc_ff = load_field_data(stash_from_dump, ENS_SOIL_EKF_FILEPATH, cache=True)
@@ -285,7 +284,6 @@ def load_ekf_combine_with_correction(corr_data):
 
 
 def apply_masks_to_perts(mask_data, total_pert):
-
     """
     # Apply field masking to the combined perturbations (fields applied to in brackets). This includes:
     # 1. Ice or snow is present on land, in any member (all pert STASH)
@@ -330,7 +328,7 @@ def apply_masks_to_perts(mask_data, total_pert):
         tmp_pert_data = field.get_data()
 
         # Print how many values will be masked that have not been already.
-        if DIAGNOSTICS:
+        if GEN_MODE >= 10:
             legit_perts = np.logical_and(tmp_pert_data != field.bmdi, tmp_pert_data != 0.0)
             masked = np.sum(np.logical_and(legit_perts, mask))
             print('STASH: {}; lblev: {}; lbuser5 {}; Additional number of values masked: {}'.format(
@@ -360,10 +358,10 @@ def apply_masks_to_perts(mask_data, total_pert):
         for stash in STASH_TO_MAKE_PERTS:
             for level in total_pert[stash]:
                 for pseudo_level in total_pert[stash][level]:
-
                     # level 1 in <mask_data> is the "any layers differ" mask
                     snow_mask_diff = extract_mask(mask_data[STASH_NUM_SNOW_LAYERS][1][pseudo_level])
-                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], snow_mask_diff, 0.0)
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                        snow_mask_diff, 0.0)
 
         # 2. Number of snow layers differed between ensemble members
         # 2nd mask is applied to all perturbation variables except TSNOW where it's ok to have snow on the tiles.
@@ -372,19 +370,20 @@ def apply_masks_to_perts(mask_data, total_pert):
             if stash != STASH_TSNOW:
                 for level in total_pert[stash]:
                     for pseudo_level in total_pert[stash][level]:
-
                         # level 2 in <mask_data> is the "one or more layers present" mask
                         snow_mask_any = extract_mask(mask_data[STASH_NUM_SNOW_LAYERS][2][pseudo_level])
-                        total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], snow_mask_any, 0.0)
+                        total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                            snow_mask_any, 0.0)
 
         # 3. Apply the land-ice mask
         # Applied to all perturbation variables on each level and pseudo-level
         print('   Land-ice:')
+        ice_mask = extract_mask(mask_data[STASH_LANDFRAC][1][PSEUDO_LEVEL_LANDICE])
         for stash in STASH_TO_MAKE_PERTS:
             for level in total_pert[stash]:
                 for pseudo_level in total_pert[stash][level]:
-                    ice_mask = extract_mask(mask_data[STASH_LANDFRAC][1][PSEUDO_LEVEL_LANDICE])
-                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level], ice_mask, 0.0)
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                        ice_mask, 0.0)
 
         return total_pert
 
@@ -403,7 +402,6 @@ def apply_masks_to_perts(mask_data, total_pert):
 
         for level in total_pert[STASH_SMC]:
             for pseudo_level in total_pert[STASH_SMC][level]:
-
                 # Extract out the combined mask (STASH and level specific)
                 tsoil_mask = extract_mask(mask_data[STASH_TSOIL][level][pseudo_level])
 
@@ -433,10 +431,11 @@ def apply_masks_to_perts(mask_data, total_pert):
 
         # Background errors and factor for pert variables from SURF
         # For SMC, all but the first soil level is 0.26, with the first level being 0.03
-        stash_errors = {STASH_TSOIL: 2.0,  # [K]
-            STASH_SMC: {level: 0.026 if level > 1 else 0.03 for level in total_pert[STASH_SMC].keys()},  # [m3 m-3]
-            STASH_TSNOW: 2.0,  # [K]
-            STASH_TSKIN: 2.3}  # [K]
+        stash_errors = \
+            {STASH_TSOIL: 2.0,  # [K]
+             STASH_SMC: {level: 0.026 if level > 1 else 0.03 for level in total_pert[STASH_SMC].keys()},  # [m3 m-3]
+             STASH_TSNOW: 2.0,  # [K]
+             STASH_TSKIN: 2.3}  # [K]
 
         # Error factor allowed in SURF, used with stash_errors
         err_factor = 3.0
@@ -458,7 +457,6 @@ def apply_masks_to_perts(mask_data, total_pert):
                     tolerance = stash_errors[stash][level] * err_factor
 
                 for pseudo_level, field in total_pert[stash][level].items():
-
                     field_data = field.get_data()
 
                     # 1. Find where positive totals are greater than the allowed tolerance
@@ -466,16 +464,16 @@ def apply_masks_to_perts(mask_data, total_pert):
 
                     # Apply the mask from each level to the total pert on the same level.
                     # Cap positive values to the maximum positive tolerance allowed
-                    total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
-                                                                            pos_mask, tolerance)
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                        pos_mask, tolerance)
 
                     # 2. Find where negative totals are less than the allowed negative tolerance
                     neg_mask = np.logical_and(field_data < -tolerance, field_data != field.bmdi)
 
                     # Apply the mask from each level to the total pert on the same level.
                     # Cap negative values to the maximum negative tolerance allowed
-                    total_pert[STASH_SMC][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
-                                                                            neg_mask, -tolerance)
+                    total_pert[stash][level][pseudo_level] = apply_mask(total_pert[stash][level][pseudo_level],
+                                                                        neg_mask, -tolerance)
 
                     # 3. Combine positive and negative masks together for diagnostic output masks should not overlap
                     # (cannot break both positive and negative tolerance), therefore summing the masks should
@@ -499,18 +497,19 @@ def apply_masks_to_perts(mask_data, total_pert):
     total_pert, mask_max_tol = cap_perts_gt_bgerr(total_pert)
 
     # print out additional diagnostics (descriptive statistics of fields)
-    if DIAGNOSTICS:
+    if GEN_MODE >= 10:
         print('\nPerturbation descriptive statistics:')
         for stash in STASH_TO_MAKE_PERTS:
-            for level in corr_data[stash].keys():
-                for (pseudo_level, pert_field) in corr_data[stash][level].items():
+            for level in total_pert[stash].keys():
+                for (pseudo_level, pert_field) in total_pert[stash][level].items():
                     data = pert_field.get_data()
                     data_flat = data[np.where(data != pert_field.bmdi)].flatten()
                     # print min, max , rms
-                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev, pert_field.lbuser5))
+                    print('STASH: {}; lblev: {}; lbuser5: {}:'.format(pert_field.lbuser4, pert_field.lblev,
+                                                                      pert_field.lbuser5))
                     print('maximum: {0:.2e}'.format(np.amax(data_flat)))
                     print('minimum: {0:.2e}'.format(np.amin(data_flat)))
-                    print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat**2))))
+                    print('rms    : {0:.2e}'.format(np.sqrt(np.mean(data_flat ** 2))))
             print('')
 
     return total_pert, mask_max_tol
@@ -520,7 +519,6 @@ def apply_masks_to_perts(mask_data, total_pert):
 
 
 def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
-
     """
     Save the total perturbation ready for the IAU to ingest. Use the EKF file as a template,
     as this is already intended for the IAU and to help future-proof the process as the file may
@@ -536,7 +534,7 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     # name the output file for EKF - correction
     output_pert_file = ROSE_DATAC + '/engl_smc/engl_surf_inc_correction'
 
-    os.system('echo File being saved using '+template_file+' as a template')
+    os.system('echo File being saved using ' + template_file + ' as a template')
 
     # now go through the fields in the pert_ff_in and as long as they are not duplicates
     # of the fields in the this_perts object, add them to pert_ff_out.
@@ -547,8 +545,8 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
     #
     # the pert_ff_out must also have a land sea mask in it.
 
-    # 1. Keep fields that are not being replaced i.e. fields which are not being perturbed, land use masks, land-sea
-    #    masks
+    # 1. Keep fields that are not being replaced i.e. fields which are not being perturbed, e.g. land-use masks,
+    #    land-sea masks
     out_pert_has_lsm = False
     template_time_field = None
     for field in pert_ff_in.fields:
@@ -561,12 +559,13 @@ def save_total_pert(centred_pert, template_file=ENS_SOIL_EKF_FILEPATH):
             pert_ff_out.fields.append(field)
             if template_time_field is None:
                 template_time_field = field
-    # add land-sea mask if not present already
+
+    # 2. Add land-sea mask if not present already (requirement for mule to save the file)
     if not out_pert_has_lsm:
         # add it:
         pert_ff_out.fields.append(centred_pert[STASH_LAND_SEA_MASK][1][1])
 
-    # 2. Now add in the perturbation fields:
+    # 3. Now add in the perturbation fields:
     for stash in STASH_TO_MAKE_PERTS:
         for level in centred_pert[stash]:
             for pseudo_level in centred_pert[stash][level]:
@@ -602,7 +601,7 @@ if __name__ == '__main__':
     if os.path.exists(ENS_SOIL_EKF_FILEPATH):
         total_pert = load_ekf_combine_with_correction(corr_data)
     else:
-        raise ValueError(ENS_SOIL_EKF_FILEPATH +' is missing!')
+        raise ValueError(ENS_SOIL_EKF_FILEPATH + ' is missing!')
 
     # Load in masks created from the previous cycle (used to mask out EKF incs in this cycle).
     mask_data, _ = load_um_fields(ENS_SOIL_MASK_FILEPATH)
