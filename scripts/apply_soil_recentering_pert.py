@@ -190,9 +190,9 @@ def load_um_fields(filepath):
                     # // finds the quotient or number of times divided
                     pseudo_level = field.lbuser5 // 1000
                 else:
-                    # if aggregate tiles used, lbuser5 will be the pseudo-level
-                    pseudo_level = field.lbuser5
-                    # normal attribute with pseudo-level on will be 1 if on aggregate tiles
+                    # if aggregate tiles used, set pseudo level to 1
+                    pseudo_level = 1
+            # normal attribute with pseudo-level on will be 1 if on aggregate tiles
             else:
                 pseudo_level = field.lbuser5
         # if tile cannot be on pseudo-levels, simply set it = 1.
