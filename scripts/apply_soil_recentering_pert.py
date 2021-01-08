@@ -208,6 +208,8 @@ def load_um_fields(filepath):
     ff_file_in = mule.load_umfile(filepath)
     ff_file_in.remove_empty_lookups()
 
+    print('loading ' + filepath)
+
     # pull out the fields:
     for field in ff_file_in.fields:
         # is this a stash to load?
