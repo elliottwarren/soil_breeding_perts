@@ -47,14 +47,14 @@ ENS_SOIL_DUMP_FILE = os.getenv('ENS_SOIL_DUMP_FILE')
 #  10 = Masking and perturbation statistics
 #  20 = Plots
 GEN_MODE = os.getenv('GEN_MODE')
-GEN_MODE = int(GEN_MODE)
 
 if NUM_PERT_MEMBERS is None:
     os.system('echo script being ran in development mode!')
     # if not set, then this is being run for development, so have canned variable settings to hand:
     NUM_PERT_MEMBERS = '3'
     #ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20181201T0600Z'  # 1 aggregate tile
-    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
+    # ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20190615T0600Z'  # 9 pseudo-tile
+    ROSE_DATAC = '/data/users/ewarren/R2O_projects/soil_moisture_pertubation/data/20191201T0000Z'  # 9 pseudo-tile
     ENS_PERT_DIR = ROSE_DATAC + '/engl_smc'
     ENS_SOIL_DUMP_FILE = 'englaa_da003'
     GEN_MODE = 20
@@ -65,6 +65,8 @@ CONTROL_MEMBER = 0
 # conversions to type:
 NUM_PERT_MEMBERS = int(NUM_PERT_MEMBERS)
 MEMBERS_PERT_INTS = range(1, NUM_PERT_MEMBERS + 1)
+
+GEN_MODE = int(GEN_MODE)
 
 # ------------------------------------
 
@@ -226,9 +228,9 @@ def load_engl_member_data(member_list):
                     # // finds the quotient or number of times divided
                     pseudo_level = field.lbuser5 // 1000
                 else:
-                    # if aggregate tiles used, lbuser5 will be the pseudo-level
-                    pseudo_level = field.lbuser5
-                    # normal attribute with pseudo-level on will be 1 if on aggregate tiles
+                    # if aggregate tiles used, set pseudo level to 1
+                    pseudo_level = 1
+            # normal attribute with pseudo-level on will be 1 if on aggregate tiles
             else:
                 pseudo_level = field.lbuser5
         # if tile cannot be on pseudo-levels, simply set it = 1.
@@ -288,6 +290,8 @@ def load_engl_member_data(member_list):
         # data file to open:
         ff_file_in = mule.DumpFile.from_file(soil_src_file)
         ff_file_in.remove_empty_lookups()
+
+        print('loading '+soil_src_file)
 
         # pull out the fields:
         for field in ff_file_in.fields:
