@@ -44,7 +44,6 @@ ENS_SOIL_MASK_FILEPATH = os.getenv('ENS_SOIL_MASK_FILEPATH')
 # <GEN_MODE>:
 #  10 = Masking and perturbation statistics
 GEN_MODE = os.getenv('GEN_MODE')
-GEN_MODE = int(GEN_MODE)
 
 if ROSE_DATACPT6H is None:
     # if not set, then this is being run for development, so have canned variable settings to hand:
@@ -57,6 +56,9 @@ if ROSE_DATACPT6H is None:
     ENS_SOIL_EKF_FILEPATH = ROSE_DATAC + '/engl_smc/engl_surf_inc'  # control member ETKF incs
     ENS_SOIL_MASK_FILEPATH = ROSE_DATACPT6H + '/engl_smc/engl_soil_correction_masks'
     GEN_MODE = 10
+
+# ensure variable type is int
+GEN_MODE = int(GEN_MODE)
 
 # ------------------------------------
 
@@ -148,6 +150,7 @@ def load_um_fields(filepath):
     most 1 is the pseudo-level. The list of fields within are from all the different members and have length n where
     n = maximum number of members): all ensemble field data for STASH variables.
 
+    :param: filepath (str) file to load
     :return: data_in (dictionary) correction data
     """
 
@@ -246,6 +249,9 @@ def load_um_fields(filepath):
                 else:
                     data_in[field.lbuser4][level] = {pseudo_level: field}
 
+    # split loading print statements here from print statements lower down
+    print('')
+
     return data_in, ff_file_in
 
 
@@ -286,7 +292,7 @@ def load_ekf_combine_with_correction(corr_data):
     return soil_centred_pert
 
 
-def apply_masks_to_perts(mask_data, total_pert):
+def apply_masks_to_perts(mask_data, total_pert, corr_ff):
     """
     # Apply field masking to the combined perturbations (fields applied to in brackets). This includes:
     # 1. Ice or snow is present on land, in any member (all pert STASH)
@@ -297,11 +303,13 @@ def apply_masks_to_perts(mask_data, total_pert):
 
     :param mask_data: (dictionary) contains the mask fields - fields are [0.0, 1.0, bmdi] and will need changing to bool
     :param total_pert: (dictionary) EKF increment - correction
+    :param corr_ff: (object) correction data fields file needed to get soil thicknesses
     :return: total_pert: total_pert but now with its data masked appropriately.
 
     Masks 1-4 inclusively were created in the previous cycle and are reapplied here to the EKF increments. Mask 5 is
     created in this script, as its based on the total pert + increment values of the fields themselves
     """
+
 
     def extract_mask(mask_field):
 
@@ -432,6 +440,9 @@ def apply_masks_to_perts(mask_data, total_pert):
           3) No cap (0.0) -> identifies where values were within acceptable bounds
         """
 
+        # density of pure water (kg/m3)
+        rho_water = 1000.0
+
         # Background errors and factor for pert variables from SURF
         # For SMC, all but the first soil level is 0.26, with the first level being 0.03
         stash_errors = \
@@ -446,6 +457,12 @@ def apply_masks_to_perts(mask_data, total_pert):
         # store the masks
         mask_max_tol = {}
 
+        # Get the soil thickness needed to convert SMC from kg/m3 to m3/m3, for perturbation check
+        # Extract soil layer thicknesses
+        num_layers = len(total_pert[STASH_TSOIL])
+        # soil_dz = corr_ff.level_dependent_constants.soil_thickness[:num_layers]
+        soil_dz = {level+1: corr_ff.level_dependent_constants.soil_thickness[level] for level in range(num_layers)}
+
         # Find where totals are beyond acceptable tolerances (stash_errors * factor)
         for stash in STASH_TO_MAKE_PERTS:
             mask_max_tol[stash] = {}
@@ -453,16 +470,36 @@ def apply_masks_to_perts(mask_data, total_pert):
             for level in total_pert[stash]:
                 mask_max_tol[stash][level] = {}
 
-                # accepted tolerance for this stash and level
-                if stash != STASH_SMC:
-                    tolerance = stash_errors[stash] * err_factor
-                else:
-                    tolerance = stash_errors[stash][level] * err_factor
-
                 for pseudo_level, field in total_pert[stash][level].items():
+
                     field_data = field.get_data()
 
-                    # 1. Find where positive totals are greater than the allowed tolerance
+                    # Get accepted tolerance for this STASH and level
+                    if stash != STASH_SMC:
+                        tolerance = stash_errors[stash] * err_factor
+
+                    else:
+                        # Convert tolerance from m-3 m-3 to kg m-3 for checks
+                        # Strictly SMC units are kg m-2 dz-1, where dz is soil thickness/depth in metres
+                        # Therefore tolerance * (rho * dz) => kg water m-3 soil, and a different value depending on the
+                        #   thickness of that layer
+                        # Note: To convert SMC to m-3 m-3 => SMC / (rho * dz) => m-3 water m-3 soil
+
+                        # Statements that can be used to convert the SMC fields themselves.
+                        # vol_smc_to_smc = mule.operators.ScaleFactorOperator(rho_water * soil_dz[level])
+                        # smc_to_vol_smc = mule.operators.ScaleFactorOperator(1.0 / (rho_water * soil_dz[level]))
+
+                        # tolerance is level dependent and SMC needs converting before checks
+                        # field data only used to generate masks so no need to convert back afterward
+                        tolerance = stash_errors[stash][level] * err_factor * rho_water * soil_dz[level]
+                        tolerance_orig = stash_errors[stash][level] * err_factor
+
+                        if GEN_MODE >= 10:
+                            print('level: {}'.format(level))
+                            print('original SMC tolerance  [m3/m3] = {}'.format(tolerance_orig))
+                            print('converted SMC tolerance [kg/m3] = {}\n'.format(tolerance))
+
+                        # 1. Find where positive totals are greater than the allowed tolerance
                     pos_mask = np.logical_and(field_data > tolerance, field_data != field.bmdi)
 
                     # Apply the mask from each level to the total pert on the same level.
@@ -597,7 +634,7 @@ if __name__ == '__main__':
 
     ## Read and process
     # Load the ensemble correction data (ensemble mean - control field, both from previous cycle).
-    corr_data, _ = load_um_fields(ENS_SOIL_CORR_FILEPATH)
+    corr_data, corr_ff = load_um_fields(ENS_SOIL_CORR_FILEPATH)
 
     # If the EKF file exists, read it in and combine with the ensemble correction.
     # NOTE: file will not exist during a fast run cycle
@@ -616,7 +653,7 @@ if __name__ == '__main__':
     # 2) TSOIL min threshold mask: For any grid cell where TSOIL < -10 degC and should be frozen (SMC)
     # 3) Limit the total (perturbation + increment) to not be beyond sensible limits (SURF background error * factor;
     #       all pert variables)
-    total_pert, mask_max_tol = apply_masks_to_perts(mask_data, total_pert)
+    total_pert, mask_max_tol = apply_masks_to_perts(mask_data, total_pert, corr_ff)
 
     ## Save
     # Save total perturbations in a new perturbation file
