@@ -340,6 +340,9 @@ def load_engl_member_data(member_list):
                 check_list_length(ens_data[stash][level][pseudo_level], member_list,
                                   stash=stash, level=level, pseudo_level=pseudo_level)
 
+    # split loading print statements here from print statements lower down
+    print('')
+
     return ens_data, ens_ff_files
 
 
@@ -428,10 +431,10 @@ def mean_minus_control(control_data, mean_data):
 def pert_check_correction(corr_data, ens, ctrl):
     """
     Set perturbations to be 0.0:
-    1. Over ice or where snow was present on any layer, in any of the members, including the
-    control.
-    2. Where soil temperature is below -10 degC
-    3. Where the absolute perturbation values are more than 1 standard deviation of the full field.
+        1) Land-ice present (all pert variables)
+        2) Number of snow layers present differed between the members (all pert variables)
+        3) Snow present on any layer (all pert variables except TSNOW)
+        4) TSOIL < -10 degC (SMC only)
     :param corr_data: ensemble mean - control, correction data.
     :param ens: ensemble data (contains the snow fields from all members except the control)
     :param ctrl: control ensemble member (contains control member's snow field)
@@ -922,7 +925,7 @@ def diagnostic_plotting(ens_data):
                 # Following code works on regular grids only. Needs expanding for non-regular grids
                 _, _, lat_corners, lon_corners = calc_lons_lats(fields, fields_data)
 
-                # 1. Standard deviation plot
+                # 1. Standard deviation plot -------------------------
                 # Calculate standard deviation of all the fields
                 stdev = np.nanstd(field_array, axis=2)
 
@@ -934,7 +937,7 @@ def diagnostic_plotting(ens_data):
 
                 diag_plot(lon_corners, lat_corners, stdev, title, savename)
 
-                # 2. Range (max-min) ensemble plot
+                # 2. Range (max-min) ensemble plot --------------------------
                 # Define array to fill with the ranges
                 range_array = np.empty((field_array.shape[0], field_array.shape[1]))
                 range_array[:] = np.nan
